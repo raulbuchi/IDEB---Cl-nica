@@ -124,12 +124,19 @@ service cloud.firestore {
     }
 
     function isValidPatient() {
-      return hasOnlyAllowedFields(['name', 'cpf', 'birthDate', 'phone', 'assignedProfessionalId', 'createdAt']) &&
+      return hasOnlyAllowedFields(['name', 'cpf', 'rg', 'birthDate', 'birthPlace', 'maritalStatus', 'phone', 'email', 'address', 'healthInsuranceName', 'healthInsuranceNumber', 'assignedProfessionalId', 'createdAt']) &&
              hasRequiredFields(['name', 'assignedProfessionalId', 'createdAt']) &&
              isValidString('name', 1, 100) &&
              isValidOptionalString('cpf', 1, 20) &&
+             isValidOptionalString('rg', 1, 20) &&
              isValidOptionalString('birthDate', 1, 20) &&
+             isValidOptionalString('birthPlace', 1, 100) &&
+             isValidOptionalString('maritalStatus', 1, 20) &&
              isValidOptionalString('phone', 1, 20) &&
+             isValidOptionalString('email', 1, 100) &&
+             isValidOptionalString('address', 1, 200) &&
+             isValidOptionalString('healthInsuranceName', 1, 100) &&
+             isValidOptionalString('healthInsuranceNumber', 1, 50) &&
              isValidString('assignedProfessionalId', 1, 50) &&
              request.resource.data.createdAt is timestamp;
     }

@@ -8,8 +8,15 @@ interface Patient {
   id: string;
   name: string;
   cpf?: string;
+  rg?: string;
   birthDate?: string;
+  birthPlace?: string;
+  maritalStatus?: string;
   phone?: string;
+  email?: string;
+  address?: string;
+  healthInsuranceName?: string;
+  healthInsuranceNumber?: string;
   assignedProfessionalId: string;
   createdAt: any;
 }
@@ -24,6 +31,7 @@ export default function Patients() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [professionals, setProfessionals] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedProfessionalFilter, setSelectedProfessionalFilter] = useState<string>('all');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
@@ -31,8 +39,15 @@ export default function Patients() {
   const [formData, setFormData] = useState({
     name: '',
     cpf: '',
+    rg: '',
     birthDate: '',
+    birthPlace: '',
+    maritalStatus: '',
     phone: '',
+    email: '',
+    address: '',
+    healthInsuranceName: '',
+    healthInsuranceNumber: '',
     assignedProfessionalId: profile?.uid || ''
   });
 
@@ -77,8 +92,15 @@ export default function Patients() {
         await updateDoc(doc(db, 'patients', editingPatient.id), {
           name: formData.name,
           cpf: formData.cpf,
+          rg: formData.rg,
           birthDate: formData.birthDate,
+          birthPlace: formData.birthPlace,
+          maritalStatus: formData.maritalStatus,
           phone: formData.phone,
+          email: formData.email,
+          address: formData.address,
+          healthInsuranceName: formData.healthInsuranceName,
+          healthInsuranceNumber: formData.healthInsuranceNumber,
           assignedProfessionalId: formData.assignedProfessionalId
         });
       } else {
@@ -109,8 +131,15 @@ export default function Patients() {
       setFormData({
         name: patient.name,
         cpf: patient.cpf || '',
+        rg: patient.rg || '',
         birthDate: patient.birthDate || '',
+        birthPlace: patient.birthPlace || '',
+        maritalStatus: patient.maritalStatus || '',
         phone: patient.phone || '',
+        email: patient.email || '',
+        address: patient.address || '',
+        healthInsuranceName: patient.healthInsuranceName || '',
+        healthInsuranceNumber: patient.healthInsuranceNumber || '',
         assignedProfessionalId: patient.assignedProfessionalId
       });
     } else {
@@ -118,8 +147,15 @@ export default function Patients() {
       setFormData({
         name: '',
         cpf: '',
+        rg: '',
         birthDate: '',
+        birthPlace: '',
+        maritalStatus: '',
         phone: '',
+        email: '',
+        address: '',
+        healthInsuranceName: '',
+        healthInsuranceNumber: '',
         assignedProfessionalId: profile?.uid || ''
       });
     }
@@ -133,25 +169,46 @@ export default function Patients() {
 
   if (loading) return <div className="p-4">Carregando pacientes...</div>;
 
+  const filteredPatients = patients.filter(patient => {
+    if (isAdmin && selectedProfessionalFilter !== 'all') {
+      return patient.assignedProfessionalId === selectedProfessionalFilter;
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Pacientes</h2>
           <p className="mt-1 text-sm text-gray-500">Gerencie o cadastro de pacientes da clínica.</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          Novo Paciente
-        </button>
+        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+          {isAdmin && (
+            <select
+              value={selectedProfessionalFilter}
+              onChange={(e) => setSelectedProfessionalFilter(e.target.value)}
+              className="block w-full sm:w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+            >
+              <option value="all">Todos os Profissionais</option>
+              {professionals.map(p => (
+                <option key={p.uid} value={p.uid}>{p.name}</option>
+              ))}
+            </select>
+          )}
+          <button
+            onClick={() => openModal()}
+            className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Novo Paciente
+          </button>
+        </div>
       </div>
 
       <div className="bg-white shadow overflow-hidden sm:rounded-md">
         <ul className="divide-y divide-gray-200">
-          {patients.map((patient) => {
+          {filteredPatients.map((patient) => {
             const prof = professionals.find(p => p.uid === patient.assignedProfessionalId);
             return (
               <li key={patient.id}>
@@ -188,8 +245,8 @@ export default function Patients() {
               </li>
             );
           })}
-          {patients.length === 0 && (
-            <li className="px-4 py-8 text-center text-gray-500">Nenhum paciente cadastrado.</li>
+          {filteredPatients.length === 0 && (
+            <li className="px-4 py-8 text-center text-gray-500">Nenhum paciente encontrado.</li>
           )}
         </ul>
       </div>
@@ -199,7 +256,7 @@ export default function Patients() {
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
             <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={closeModal} />
-            <div className="relative inline-block w-full max-w-md p-6 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-2xl">
+            <div className="relative inline-block w-full max-w-2xl p-6 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-2xl">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium leading-6 text-gray-900">
                   {editingPatient ? 'Editar Paciente' : 'Novo Paciente'}
@@ -210,18 +267,38 @@ export default function Patients() {
               </div>
               
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Nome Completo *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700">Nome Completo *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">E-mail</label>
+                    <input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({...formData, email: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Telefone</label>
+                    <input
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700">CPF</label>
                     <input
@@ -231,6 +308,17 @@ export default function Patients() {
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">RG</label>
+                    <input
+                      type="text"
+                      value={formData.rg}
+                      onChange={(e) => setFormData({...formData, rg: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Data de Nasc.</label>
                     <input
@@ -240,34 +328,81 @@ export default function Patients() {
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
                     />
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Telefone</label>
-                  <input
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
-                  />
-                </div>
-
-                {isAdmin && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Profissional Responsável *</label>
+                    <label className="block text-sm font-medium text-gray-700">Local de Nasc. (Naturalidade)</label>
+                    <input
+                      type="text"
+                      value={formData.birthPlace}
+                      onChange={(e) => setFormData({...formData, birthPlace: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Estado Civil</label>
                     <select
-                      required
-                      value={formData.assignedProfessionalId}
-                      onChange={(e) => setFormData({...formData, assignedProfessionalId: e.target.value})}
+                      value={formData.maritalStatus}
+                      onChange={(e) => setFormData({...formData, maritalStatus: e.target.value})}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
                     >
-                      <option value="">Selecione um profissional</option>
-                      {professionals.map(p => (
-                        <option key={p.uid} value={p.uid}>{p.name}</option>
-                      ))}
+                      <option value="">Selecione...</option>
+                      <option value="solteiro">Solteiro(a)</option>
+                      <option value="casado">Casado(a)</option>
+                      <option value="divorciado">Divorciado(a)</option>
+                      <option value="viuvo">Viúvo(a)</option>
+                      <option value="outro">Outro</option>
                     </select>
                   </div>
-                )}
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700">Endereço Completo</label>
+                    <input
+                      type="text"
+                      value={formData.address}
+                      onChange={(e) => setFormData({...formData, address: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Convênio</label>
+                    <input
+                      type="text"
+                      value={formData.healthInsuranceName}
+                      onChange={(e) => setFormData({...formData, healthInsuranceName: e.target.value})}
+                      placeholder="Ex: Unimed, Bradesco..."
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Número do Convênio</label>
+                    <input
+                      type="text"
+                      value={formData.healthInsuranceNumber}
+                      onChange={(e) => setFormData({...formData, healthInsuranceNumber: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    />
+                  </div>
+
+                  {isAdmin && (
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700">Profissional Responsável *</label>
+                      <select
+                        required
+                        value={formData.assignedProfessionalId}
+                        onChange={(e) => setFormData({...formData, assignedProfessionalId: e.target.value})}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                      >
+                        <option value="">Selecione um profissional</option>
+                        {professionals.map(p => (
+                          <option key={p.uid} value={p.uid}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
 
                 <div className="mt-5 sm:mt-6 flex gap-3">
                   <button
