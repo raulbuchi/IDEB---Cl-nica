@@ -53,6 +53,7 @@ export default function Financial() {
   const [filterPeriod, setFilterPeriod] = useState<'all' | 'this_week' | 'this_month' | 'custom'>('this_month');
   const [filterProfessional, setFilterProfessional] = useState('all');
   const [filterMethod, setFilterMethod] = useState('all');
+  const [filterInsurance, setFilterInsurance] = useState('all');
   const [filterPatient, setFilterPatient] = useState('all');
 
   const [formData, setFormData] = useState({
@@ -234,6 +235,10 @@ export default function Financial() {
       }
 
       let matchesMethod = filterMethod === 'all' || p.method === filterMethod;
+      if (filterMethod === 'health_insurance' && filterInsurance !== 'all') {
+        matchesMethod = matchesMethod && p.methodDetails === filterInsurance;
+      }
+
       let matchesPatient = filterPatient === 'all' || p.patientId === filterPatient;
 
       let matchesPeriod = true;
@@ -243,7 +248,17 @@ export default function Financial() {
 
       return matchesProf && matchesMethod && matchesPatient && matchesPeriod;
     });
-  }, [payments, filterPeriod, filterProfessional, filterMethod, filterPatient, isAdmin]);
+  }, [payments, filterPeriod, filterProfessional, filterMethod, filterInsurance, filterPatient, isAdmin]);
+
+  const uniqueInsurances = useMemo(() => {
+    const insurances = new Set<string>();
+    payments.forEach(p => {
+      if (p.method === 'health_insurance' && p.methodDetails) {
+        insurances.add(p.methodDetails);
+      }
+    });
+    return Array.from(insurances).sort();
+  }, [payments]);
 
   const totalAmount = filteredPayments.reduce((acc, curr) => acc + curr.amount, 0);
 
@@ -383,7 +398,10 @@ export default function Financial() {
             <label className="block text-xs font-medium text-gray-500 mb-1">Forma de Pagamento</label>
             <select
               value={filterMethod}
-              onChange={(e) => setFilterMethod(e.target.value)}
+              onChange={(e) => {
+                setFilterMethod(e.target.value);
+                setFilterInsurance('all'); // Reset insurance filter when method changes
+              }}
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-2"
             >
               <option value="all">Todas as Formas</option>
@@ -394,6 +412,21 @@ export default function Financial() {
               <option value="health_insurance">Convênio</option>
             </select>
           </div>
+          {filterMethod === 'health_insurance' && uniqueInsurances.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Qual Convênio?</label>
+              <select
+                value={filterInsurance}
+                onChange={(e) => setFilterInsurance(e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-2"
+              >
+                <option value="all">Todos os Convênios</option>
+                {uniqueInsurances.map(ins => (
+                  <option key={ins} value={ins}>{ins}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
