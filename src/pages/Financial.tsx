@@ -5,6 +5,7 @@ import { useAuth } from '../AuthContext';
 import { Plus, Edit2, Trash2, X, DollarSign, Calendar as CalendarIcon, User as UserIcon, Filter, Download } from 'lucide-react';
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface Payment {
   id: string;
@@ -246,6 +247,65 @@ export default function Financial() {
 
   const totalAmount = filteredPayments.reduce((acc, curr) => acc + curr.amount, 0);
 
+  const exportCSV = () => {
+    const headers = ['Data', 'Paciente', 'Profissional', 'Forma de Pagamento', 'Detalhes', 'Valor (R$)'];
+    const rows = filteredPayments.map(p => [
+      format(p.date.toDate(), "dd/MM/yyyy HH:mm"),
+      p.patientName,
+      p.professionalName,
+      PAYMENT_METHODS[p.method],
+      p.methodDetails || '',
+      p.amount.toString().replace('.', ',')
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + headers.join(';') + '\n' 
+      + rows.map(r => r.join(';')).join('\n');
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `relatorio_financeiro_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Prepare chart data
+  const chartDataMethod = useMemo(() => {
+    const grouped = filteredPayments.reduce((acc, curr) => {
+      const methodStr = PAYMENT_METHODS[curr.method];
+      acc[methodStr] = (acc[methodStr] || 0) + curr.amount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return Object.keys(grouped).map(key => ({
+      name: key,
+      value: grouped[key]
+    }));
+  }, [filteredPayments]);
+
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  const chartDataTimeline = useMemo(() => {
+    const grouped = filteredPayments.reduce((acc, curr) => {
+      const dateStr = format(curr.date.toDate(), "dd/MM");
+      acc[dateStr] = (acc[dateStr] || 0) + curr.amount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const sortedKeys = Object.keys(grouped).sort((a, b) => {
+      const [d1, m1] = a.split('/');
+      const [d2, m2] = b.split('/');
+      return new Date(2020, Number(m1)-1, Number(d1)).getTime() - new Date(2020, Number(m2)-1, Number(d2)).getTime();
+    });
+
+    return sortedKeys.map(key => ({
+      name: key,
+      Total: grouped[key]
+    }));
+  }, [filteredPayments]);
+
   if (loading) return <div className="p-4">Carregando financeiro...</div>;
 
   return (
@@ -255,13 +315,22 @@ export default function Financial() {
           <h2 className="text-2xl font-bold text-gray-900">Financeiro</h2>
           <p className="mt-1 text-sm text-gray-500">Controle de pagamentos, convênios e relatórios.</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          Registrar Pagamento
-        </button>
+        <div className="flex gap-2 w-full md:w-auto">
+          <button
+            onClick={exportCSV}
+            className="flex-1 md:flex-none inline-flex justify-center items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Exportar CSV
+          </button>
+          <button
+            onClick={() => openModal()}
+            className="flex-1 md:flex-none inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Registrar Pagamento
+          </button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
@@ -336,6 +405,48 @@ export default function Financial() {
           </p>
         </div>
         <DollarSign className="w-12 h-12 text-blue-200" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">Faturamento por Período</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartDataTimeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                <RechartsTooltip cursor={{ fill: 'transparent' }} formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)} />
+                <Bar dataKey="Total" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">Por Forma de Pagamento</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={chartDataMethod}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {chartDataMethod.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <RechartsTooltip formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)} />
+                <Legend verticalAlign="bottom" height={36} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white shadow overflow-hidden sm:rounded-md">

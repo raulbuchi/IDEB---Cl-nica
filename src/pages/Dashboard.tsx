@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
-import { Plus, Edit2, Trash2, X, Calendar as CalendarIcon, Clock, MapPin, RefreshCw, Bell, MessageCircle, Mail, Smartphone, List } from 'lucide-react';
-import { format, parseISO, startOfDay, endOfDay, addDays, addMonths, parse, startOfWeek, getDay } from 'date-fns';
+import { Plus, Edit2, Trash2, X, Calendar as CalendarIcon, Clock, MapPin, RefreshCw, Bell, MessageCircle, Mail, Smartphone, List, Repeat } from 'lucide-react';
+import { format, parseISO, startOfDay, endOfDay, addDays, addWeeks, addMonths, parse, startOfWeek, getDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
+import { Calendar, dateFnsLocalizer, Event, View } from 'react-big-calendar';
+import withDragAndDrop, { EventInteractionArgs } from 'react-big-calendar/lib/addons/dragAndDrop';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 
 const locales = {
   'pt-BR': ptBR,
@@ -19,6 +21,8 @@ const localizer = dateFnsLocalizer({
   getDay,
   locales,
 });
+
+const DnDCalendar = withDragAndDrop(Calendar as any);
 
 interface Appointment {
   id: string;
@@ -54,12 +58,17 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [reminderModalApt, setReminderModalApt] = useState<Appointment | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('calendar');
   const [filterProfessionalId, setFilterProfessionalId] = useState('all');
   const [filterOffice, setFilterOffice] = useState('all');
+  const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
   
+  const [calendarView, setCalendarView] = useState<View>('week');
+  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
+
   const [formData, setFormData] = useState({
     patientId: '',
     professionalId: '',
@@ -68,7 +77,9 @@ export default function Dashboard() {
     office: 'Consultório 1',
     status: 'scheduled' as const,
     notes: '',
-    reminderTiming: '24h'
+    reminderTiming: '24h',
+    recurrence: 'none',
+    recurrenceCount: 1
   });
 
   useEffect(() => {
@@ -129,17 +140,25 @@ export default function Dashboard() {
     };
   }, [profile, isAdmin]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedPatient = patients.find(p => p.id === formData.patientId);
+    if (!selectedPatient) {
+      alert("Por favor, selecione um paciente.");
+      return;
+    }
+    setIsConfirming(true);
+  };
+
+  const confirmAndSave = async () => {
     if (!profile) return;
 
     const selectedPatient = patients.find(p => p.id === formData.patientId);
     if (!selectedPatient) return;
 
     try {
-      const appointmentDate = Timestamp.fromDate(new Date(formData.date));
-      
       if (editingAppointment) {
+        const appointmentDate = Timestamp.fromDate(new Date(formData.date));
         await updateDoc(doc(db, 'appointments', editingAppointment.id), {
           patientId: formData.patientId,
           patientName: selectedPatient.name,
@@ -152,18 +171,32 @@ export default function Dashboard() {
           reminderTiming: formData.reminderTiming
         });
       } else {
-        await addDoc(collection(db, 'appointments'), {
-          patientId: formData.patientId,
-          patientName: selectedPatient.name,
-          professionalId: formData.professionalId || profile.uid,
-          date: appointmentDate,
-          duration: Number(formData.duration),
-          office: formData.office,
-          status: formData.status,
-          notes: formData.notes,
-          reminderTiming: formData.reminderTiming,
-          createdAt: new Date()
-        });
+        const occurrences = formData.recurrence === 'none' ? 1 : Number(formData.recurrenceCount) || 1;
+        const baseDate = new Date(formData.date);
+        const batch = writeBatch(db);
+        const apptsCollection = collection(db, 'appointments');
+
+        for (let i = 0; i < occurrences; i++) {
+          let currDate = new Date(baseDate);
+          if (formData.recurrence === 'daily') currDate = addDays(baseDate, i);
+          else if (formData.recurrence === 'weekly') currDate = addWeeks(baseDate, i);
+          else if (formData.recurrence === 'monthly') currDate = addMonths(baseDate, i);
+
+          const newDocRef = doc(apptsCollection);
+          batch.set(newDocRef, {
+            patientId: formData.patientId,
+            patientName: selectedPatient.name,
+            professionalId: formData.professionalId || profile.uid,
+            date: Timestamp.fromDate(currDate),
+            duration: Number(formData.duration),
+            office: formData.office,
+            status: formData.status,
+            notes: formData.notes,
+            reminderTiming: formData.reminderTiming,
+            createdAt: new Date()
+          });
+        }
+        await batch.commit();
       }
       closeModal();
     } catch (error) {
@@ -181,6 +214,34 @@ export default function Dashboard() {
     }
   };
 
+  const onEventDrop = async ({ event, start, end }: EventInteractionArgs<any>) => {
+    try {
+      const apt = event as Appointment;
+      const newDate = Timestamp.fromDate(new Date(start as Date));
+      await updateDoc(doc(db, 'appointments', apt.id), {
+        date: newDate
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `appointments/${(event as Appointment).id}`);
+    }
+  };
+
+  const onEventResize = async ({ event, start, end }: EventInteractionArgs<any>) => {
+    try {
+      const apt = event as Appointment;
+      const newDate = Timestamp.fromDate(new Date(start as Date));
+      const durationMs = new Date(end as Date).getTime() - new Date(start as Date).getTime();
+      const durationMins = Math.round(durationMs / 60000);
+      
+      await updateDoc(doc(db, 'appointments', apt.id), {
+        date: newDate,
+        duration: durationMins
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `appointments/${(event as Appointment).id}`);
+    }
+  };
+
   const openModal = (appointment?: Appointment) => {
     if (appointment) {
       setEditingAppointment(appointment);
@@ -192,7 +253,9 @@ export default function Dashboard() {
         office: appointment.office,
         status: appointment.status,
         notes: appointment.notes || '',
-        reminderTiming: appointment.reminderTiming || 'none'
+        reminderTiming: appointment.reminderTiming || 'none',
+        recurrence: 'none',
+        recurrenceCount: 1
       });
     } else {
       setEditingAppointment(null);
@@ -204,7 +267,9 @@ export default function Dashboard() {
         office: 'Consultório 1',
         status: 'scheduled',
         notes: '',
-        reminderTiming: '24h'
+        reminderTiming: '24h',
+        recurrence: 'none',
+        recurrenceCount: 1
       });
     }
     setIsModalOpen(true);
@@ -220,7 +285,9 @@ export default function Dashboard() {
       office: appointment.office,
       status: 'scheduled',
       notes: 'Retorno',
-      reminderTiming: '24h'
+      reminderTiming: '24h',
+      recurrence: 'none',
+      recurrenceCount: 1
     });
     setIsModalOpen(true);
   };
@@ -309,6 +376,7 @@ export default function Dashboard() {
 
   const closeModal = () => {
     setIsModalOpen(false);
+    setIsConfirming(false);
     setEditingAppointment(null);
   };
 
@@ -371,19 +439,30 @@ export default function Dashboard() {
             </button>
           </div>
           <button
-            onClick={() => handleQuickSchedule(1)}
+            onClick={() => {
+              handleQuickSchedule(1);
+              setCalendarDate(addDays(new Date(), 1));
+              setCalendarView('day');
+              setViewMode('calendar');
+            }}
             className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
           >
             Amanhã
           </button>
           <button
-            onClick={() => handleQuickSchedule(3)}
+            onClick={() => {
+              handleQuickSchedule(3);
+              setCalendarDate(addDays(new Date(), Math.max(3, 3 + (getDay(new Date()) >= 3 ? 2 : 0))));
+            }}
             className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
           >
             Em 3 dias úteis
           </button>
           <button
-            onClick={() => handleQuickSchedule(7)}
+            onClick={() => {
+              handleQuickSchedule(7);
+              setCalendarDate(addDays(new Date(), Math.max(7, 7 + (getDay(new Date()) >= 1 ? 2 : 0))));
+            }}
             className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
           >
             Em 7 dias úteis
@@ -427,8 +506,12 @@ export default function Dashboard() {
 
       {viewMode === 'calendar' ? (
         <div className="bg-white shadow rounded-lg p-4 h-[600px]">
-          <Calendar
+          <DnDCalendar
             localizer={localizer}
+            view={calendarView}
+            onView={(view) => setCalendarView(view)}
+            date={calendarDate}
+            onNavigate={(date) => setCalendarDate(date)}
             events={filteredAppointments.map(apt => {
               const start = apt.date.toDate();
               const end = new Date(start.getTime() + apt.duration * 60000);
@@ -457,7 +540,11 @@ export default function Dashboard() {
               event: "Evento",
               noEventsInRange: "Não há consultas neste período.",
             }}
-            onSelectEvent={(event) => openModal(event as Appointment)}
+            onSelectEvent={(event) => setViewingAppointment(event as Appointment)}
+            onEventDrop={onEventDrop}
+            onEventResize={onEventResize}
+            resizable
+            selectable
             eventPropGetter={(event) => {
               let backgroundColor = '#3b82f6'; // blue for scheduled
               if (event.status === 'completed') backgroundColor = '#10b981'; // green
@@ -467,86 +554,113 @@ export default function Dashboard() {
           />
         </div>
       ) : (
-        <div className="bg-white shadow overflow-hidden sm:rounded-md">
-          <ul className="divide-y divide-gray-200">
-          {filteredAppointments.map((apt) => {
-            const date = apt.date.toDate();
-            const professional = professionals.find(p => p.uid === apt.professionalId);
-            return (
-              <li key={apt.id}>
-                <div className="px-4 py-4 flex items-center sm:px-6">
-                  <div className="min-w-0 flex-1 sm:flex sm:items-center sm:justify-between">
-                    <div>
-                      <div className="flex text-sm">
-                        <p className="font-medium text-blue-600 truncate">{apt.patientName}</p>
-                        <span className={`ml-3 px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(apt.status)}`}>
-                          {getStatusText(apt.status)}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-col sm:flex-row sm:gap-4 text-sm text-gray-500">
-                        <div className="flex items-center">
-                          <CalendarIcon className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
-                          {format(date, "dd 'de' MMMM, yyyy", { locale: ptBR })}
-                        </div>
-                        <div className="flex items-center mt-2 sm:mt-0">
-                          <Clock className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
-                          {format(date, "HH:mm")} ({apt.duration} min)
-                        </div>
-                        <div className="flex items-center mt-2 sm:mt-0">
-                          <MapPin className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
-                          {apt.office}
-                        </div>
-                        {isAdmin && professional && (
-                          <div className="flex items-center mt-2 sm:mt-0 px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium">
-                            {professional.name}
+        <div className="space-y-6">
+          {Object.entries(
+            filteredAppointments.reduce((acc, apt) => {
+              const dateStr = format(apt.date.toDate(), 'yyyy-MM-dd');
+              if (!acc[dateStr]) acc[dateStr] = [];
+              acc[dateStr].push(apt);
+              return acc;
+            }, {} as Record<string, Appointment[]>)
+          ).sort(([dateA], [dateB]) => dateA.localeCompare(dateB)).map(([dateStr, dayAppointments]) => (
+            <div key={dateStr} className="bg-white shadow overflow-hidden sm:rounded-md">
+              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-900 capitalize flex items-center">
+                  <CalendarIcon className="w-5 h-5 mr-2 text-gray-400" />
+                  {format(parseISO(dateStr), "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                </h3>
+              </div>
+              <ul className="divide-y divide-gray-200">
+                {dayAppointments.map((apt) => {
+                  const date = apt.date.toDate();
+                  const professional = professionals.find(p => p.uid === apt.professionalId);
+                  const patient = patients.find(p => p.id === apt.patientId);
+                  return (
+                    <li key={apt.id} className="hover:bg-gray-50 transition-colors">
+                      <div className="px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between sm:px-6 gap-4">
+                        <div 
+                          className="min-w-0 flex-1 cursor-pointer" 
+                          onClick={() => setViewingAppointment(apt)}
+                        >
+                          <div className="flex items-center justify-between sm:justify-start">
+                            <p className="font-medium text-blue-600 truncate text-base">{apt.patientName}</p>
+                            <span className={`ml-3 px-2.5 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(apt.status)}`}>
+                              {getStatusText(apt.status)}
+                            </span>
                           </div>
-                        )}
-                      </div>
-                      {apt.notes && (
-                        <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded border border-gray-100">
-                          <span className="font-medium text-gray-700">Observações:</span> {apt.notes}
+                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
+                            <div className="flex items-center">
+                              <Clock className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
+                              <span className="font-medium text-gray-900">{format(date, "HH:mm")}</span>
+                              <span className="ml-1">({apt.duration} min)</span>
+                            </div>
+                            <div className="flex items-center">
+                              <MapPin className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
+                              {apt.office}
+                            </div>
+                            {isAdmin && professional && (
+                              <div className="flex items-center">
+                                <List className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
+                                <span className="truncate">{professional.name}</span>
+                              </div>
+                            )}
+                            {patient?.phone && (
+                              <div className="flex items-center">
+                                <Smartphone className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
+                                {patient.phone}
+                              </div>
+                            )}
+                          </div>
+                          {apt.notes && (
+                            <div className="mt-3 text-sm text-gray-600 bg-yellow-50 p-3 rounded-md border border-yellow-100 italic">
+                              <span className="font-semibold text-gray-700 not-italic mr-1">Obs:</span> {apt.notes}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div className="mt-4 flex-shrink-0 sm:mt-0 sm:ml-5 flex gap-2">
-                      <button
-                        onClick={() => setReminderModalApt(apt)}
-                        title="Enviar Lembrete"
-                        className="p-2 text-gray-400 hover:text-yellow-600"
-                      >
-                        <Bell className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => handleScheduleReturn(apt)}
-                        title="Agendar Retorno"
-                        className="p-2 text-gray-400 hover:text-green-600"
-                      >
-                        <RefreshCw className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => openModal(apt)}
-                        title="Editar Consulta"
-                        className="p-2 text-gray-400 hover:text-blue-600"
-                      >
-                        <Edit2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(apt.id)}
-                        title="Cancelar Consulta"
-                        className="p-2 text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
+                        <div className="mt-4 flex-shrink-0 sm:mt-0 flex gap-2 justify-end">
+                          <button
+                            onClick={() => setReminderModalApt(apt)}
+                            title="Enviar Lembrete"
+                            className="p-2 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-full transition-colors divide-x divide-gray-200"
+                          >
+                            <Bell className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => handleScheduleReturn(apt)}
+                            title="Agendar Retorno"
+                            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors"
+                          >
+                            <RefreshCw className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => openModal(apt)}
+                            title="Editar Consulta"
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                          >
+                            <Edit2 className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(apt.id)}
+                            title="Cancelar Consulta"
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
           {filteredAppointments.length === 0 && (
-            <li className="px-4 py-8 text-center text-gray-500">Nenhuma consulta agendada.</li>
+            <div className="text-center py-12 bg-white shadow sm:rounded-lg">
+              <CalendarIcon className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-900">Nenhuma consulta</h3>
+              <p className="mt-1 text-sm text-gray-500">Você não possui consultas agendadas para este filtro.</p>
+            </div>
           )}
-          </ul>
         </div>
       )}
 
@@ -558,15 +672,67 @@ export default function Dashboard() {
             <div className="relative inline-block w-full max-w-md p-6 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-2xl">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium leading-6 text-gray-900">
-                  {editingAppointment ? 'Editar Consulta' : 'Nova Consulta'}
+                  {isConfirming ? 'Resumo do Agendamento' : (editingAppointment ? 'Editar Consulta' : 'Nova Consulta')}
                 </h3>
                 <button onClick={closeModal} className="text-gray-400 hover:text-gray-500">
                   <X className="w-6 h-6" />
                 </button>
               </div>
               
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              {isConfirming ? (
+                <div className="space-y-4 text-sm">
+                  <div className="bg-blue-50 p-4 rounded-md text-blue-900 grid grid-cols-2 gap-y-4">
+                    <div>
+                      <span className="block text-blue-700 text-xs font-semibold uppercase">Paciente</span>
+                      <span className="font-medium">{patients.find(p => p.id === formData.patientId)?.name}</span>
+                    </div>
+                    <div>
+                      <span className="block text-blue-700 text-xs font-semibold uppercase">Data e Hora</span>
+                      <span className="font-medium">{format(new Date(formData.date), "dd/MM/yyyy 'às' HH:mm")}</span>
+                    </div>
+                    <div>
+                      <span className="block text-blue-700 text-xs font-semibold uppercase">Consultório</span>
+                      <span className="font-medium">{formData.office}</span>
+                    </div>
+                    <div>
+                      <span className="block text-blue-700 text-xs font-semibold uppercase">Duração</span>
+                      <span className="font-medium">{formData.duration} min</span>
+                    </div>
+                    {isAdmin && formData.professionalId && (
+                      <div className="col-span-2">
+                        <span className="block text-blue-700 text-xs font-semibold uppercase">Profissional</span>
+                        <span className="font-medium">{professionals.find(p => p.uid === formData.professionalId)?.name}</span>
+                      </div>
+                    )}
+                    {!editingAppointment && formData.recurrence !== 'none' && (
+                      <div className="col-span-2 border-t border-blue-200 mt-2 pt-2">
+                        <span className="block text-blue-700 text-xs font-semibold uppercase">Repetição</span>
+                        <span className="font-medium">
+                          {formData.recurrence === 'daily' ? 'Diárias' : formData.recurrence === 'weekly' ? 'Semanais' : 'Mensais'} ({formData.recurrenceCount} sessões totais)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-5 sm:mt-6 flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirming(false)}
+                      className="inline-flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-base font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:text-sm items-center"
+                    >
+                      Voltar e Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmAndSave}
+                      className="inline-flex w-full justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-base font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:text-sm items-center"
+                    >
+                      Confirmar {formData.recurrence !== 'none' && !editingAppointment ? `(${formData.recurrenceCount})` : ''}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Paciente *</label>
                     <select
@@ -670,6 +836,42 @@ export default function Dashboard() {
                   <p className="text-xs text-gray-500 mt-1">Requer configuração de backend para envio automático.</p>
                 </div>
 
+                {!editingAppointment && (
+                  <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-md border border-gray-100">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
+                        <Repeat className="w-3 h-3 text-gray-400" />
+                        Repetição
+                      </label>
+                      <select
+                        value={formData.recurrence}
+                        onChange={(e) => setFormData({...formData, recurrence: e.target.value})}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                      >
+                        <option value="none">Não Repetir</option>
+                        <option value="daily">Diariamente</option>
+                        <option value="weekly">Semanalmente</option>
+                        <option value="monthly">Mensalmente</option>
+                      </select>
+                    </div>
+                    {formData.recurrence !== 'none' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Quantidade de vezes</label>
+                        <input
+                          type="number"
+                          min="2"
+                          max="50"
+                          required={formData.recurrence !== 'none'}
+                          value={formData.recurrenceCount}
+                          onChange={(e) => setFormData({...formData, recurrenceCount: Number(e.target.value)})}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Até 50 consultas geradas.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Observações do Agendamento</label>
                   <textarea
@@ -720,10 +922,121 @@ export default function Dashboard() {
                     type="submit"
                     className="inline-flex w-full justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-base font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:text-sm items-center"
                   >
-                    Salvar
+                    Resumo e Salvar
                   </button>
                 </div>
               </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Appointment Modal */}
+      {viewingAppointment && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
+            <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={() => setViewingAppointment(null)} />
+            <div className="relative inline-block w-full max-w-lg p-6 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-2xl">
+              <div className="flex justify-between items-start mb-5 pb-4 border-b border-gray-100">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-1">
+                    Detalhes da Consulta
+                  </h3>
+                  <span className={`inline-flex px-2.5 py-0.5 text-xs font-semibold rounded-full ${getStatusColor(viewingAppointment.status)}`}>
+                    {getStatusText(viewingAppointment.status)}
+                  </span>
+                </div>
+                <button onClick={() => setViewingAppointment(null)} className="text-gray-400 hover:text-gray-500 bg-gray-100 rounded-full p-2">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-4 mb-8">
+                <div className="col-span-1 md:col-span-2">
+                  <span className="block text-sm font-medium text-gray-500 mb-1">Paciente</span>
+                  <div className="text-lg font-semibold text-gray-800 flex items-center">
+                    {viewingAppointment.patientName}
+                    {patients.find(p => p.id === viewingAppointment.patientId)?.phone && (
+                       <span className="ml-3 px-2 py-1 text-sm bg-blue-50 text-blue-700 rounded-md font-medium border border-blue-100 flex items-center">
+                         <Smartphone className="w-4 h-4 mr-1.5" />
+                         {patients.find(p => p.id === viewingAppointment.patientId)?.phone}
+                       </span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="block text-sm font-medium text-gray-500 mb-1 flex items-center">
+                    <CalendarIcon className="w-4 h-4 mr-1.5" />
+                    Data e Hora
+                  </span>
+                  <div className="text-gray-900 font-medium">
+                    {format(viewingAppointment.date.toDate(), "dd 'de' MMMM, yyyy", { locale: ptBR })}
+                    <div className="text-sm text-gray-600 mt-0.5">
+                      {format(viewingAppointment.date.toDate(), "HH:mm")} ({viewingAppointment.duration} min)
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="block text-sm font-medium text-gray-500 mb-1 flex items-center">
+                    <MapPin className="w-4 h-4 mr-1.5" />
+                    Local
+                  </span>
+                  <div className="text-gray-900 font-medium">{viewingAppointment.office}</div>
+                </div>
+
+                <div className="col-span-1 md:col-span-2">
+                  <span className="block text-sm font-medium text-gray-500 mb-1">Profissional</span>
+                  <div className="text-gray-900 font-medium bg-gray-50 inline-block px-3 py-1.5 rounded border border-gray-200">
+                    {professionals.find(p => p.uid === viewingAppointment.professionalId)?.name || 'Desconhecido'}
+                  </div>
+                </div>
+
+                {viewingAppointment.notes && (
+                  <div className="col-span-1 md:col-span-2 bg-yellow-50 p-4 rounded-lg border border-yellow-100">
+                    <span className="block text-sm font-semibold text-gray-700 mb-2 border-b border-yellow-200 pb-2">Observações</span>
+                    <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{viewingAppointment.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-5 border-t border-gray-100">
+                <button
+                  onClick={() => {
+                    const apt = viewingAppointment;
+                    setViewingAppointment(null);
+                    openModal(apt);
+                  }}
+                  className="flex-1 inline-flex justify-center items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  <Edit2 className="w-4 h-4 mr-2 text-gray-400" />
+                  Editar
+                </button>
+                <button
+                  onClick={() => {
+                    const apt = viewingAppointment;
+                    setViewingAppointment(null);
+                    setReminderModalApt(apt);
+                  }}
+                  className="flex-1 inline-flex justify-center items-center px-4 py-2 bg-white border border-green-300 rounded-md shadow-sm text-sm font-medium text-green-700 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  <Bell className="w-4 h-4 mr-2 text-green-500" />
+                  Lembrete
+                </button>
+                <button
+                  onClick={() => {
+                    const apt = viewingAppointment;
+                    setViewingAppointment(null);
+                    handleDelete(apt.id);
+                  }}
+                  className="flex-1 inline-flex justify-center items-center px-4 py-2 bg-white border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  <Trash2 className="w-4 h-4 mr-2 text-red-400" />
+                  Cancelar
+                </button>
+              </div>
             </div>
           </div>
         </div>

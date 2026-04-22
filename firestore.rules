@@ -126,6 +126,18 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidAttachment(data) {
+      return data.keys().hasOnly(['patientId', 'professionalId', 'name', 'type', 'url', 'fileData', 'createdAt']) &&
+             data.keys().hasAll(['patientId', 'professionalId', 'name', 'type', 'createdAt']) &&
+             data.patientId is string && data.patientId.size() >= 1 && data.patientId.size() <= 128 &&
+             data.professionalId is string && data.professionalId.size() >= 1 && data.professionalId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+             data.type in ['exam', 'test', 'opinion', 'certificate', 'other'] &&
+             (data.get('url', '') is string && data.get('url', '').size() <= 2000) &&
+             (data.get('fileData', '') is string && data.get('fileData', '').size() <= 1048000) &&
+             data.createdAt is timestamp;
+    }
+
     // ===============================================================
     // Rules Configuration
     // ===============================================================
@@ -224,6 +236,24 @@ service cloud.firestore {
       );
 
       allow delete: if isAuthenticated() && isValidId(paymentId) && (isAdmin() || existing().professionalId == request.auth.uid);
+    }
+
+    match /attachments/{attachmentId} {
+      allow get: if isAuthenticated() && isValidId(attachmentId) && (isAdmin() || existing().professionalId == request.auth.uid);
+      allow list: if isAuthenticated() && (isAdmin() || resource.data.professionalId == request.auth.uid);
+
+      allow create: if isAuthenticated() && isValidAttachment(incoming()) && (
+        isAdmin() || incoming().professionalId == request.auth.uid
+      ) && incoming().createdAt == request.time;
+
+      allow update: if isAuthenticated() && isValidId(attachmentId) && isValidAttachment(incoming()) && (
+        incoming().createdAt == existing().createdAt &&
+        incoming().professionalId == existing().professionalId &&
+        incoming().patientId == existing().patientId &&
+        (isAdmin() || existing().professionalId == request.auth.uid)
+      );
+
+      allow delete: if isAdmin() || (isAuthenticated() && existing().professionalId == request.auth.uid);
     }
 
   }

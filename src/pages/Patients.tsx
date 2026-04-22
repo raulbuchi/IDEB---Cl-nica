@@ -207,9 +207,10 @@ export default function Patients() {
     let matchesSearch = true;
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
+      const rawTerm = term.replace(/\D/g, '');
       const nameMatch = patient.name.toLowerCase().includes(term);
-      const cpfMatch = patient.cpf?.toLowerCase().includes(term) || false;
-      const phoneMatch = patient.phone?.toLowerCase().includes(term) || false;
+      const cpfMatch = patient.cpf?.toLowerCase().includes(term) || (rawTerm && patient.cpf?.replace(/\D/g, '').includes(rawTerm)) || false;
+      const phoneMatch = patient.phone?.toLowerCase().includes(term) || (rawTerm && patient.phone?.replace(/\D/g, '').includes(rawTerm)) || false;
       matchesSearch = nameMatch || cpfMatch || phoneMatch;
     }
 

@@ -5,10 +5,14 @@ import { useAuth } from '../AuthContext';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, format, isWithinInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { Download } from 'lucide-react';
 
 interface Appointment {
   id: string;
   professionalId: string;
+  professionalName?: string; // Some might have this depending on how it was saved, assuming it's useful for export
+  patientName: string;
+  office: string;
   date: any;
   duration: number;
   status: 'scheduled' | 'completed' | 'cancelled';
@@ -124,6 +128,7 @@ export default function Productivity() {
     }
 
     return {
+      filtered,
       total: filtered.length,
       completed: completed.length,
       cancelled: cancelled.length,
@@ -132,6 +137,43 @@ export default function Productivity() {
       chartData
     };
   }, [appointments, timeRange, customStartDate, customEndDate]);
+
+  const exportCSV = () => {
+    const headers = ['Data e Hora', 'Status', 'Duração (min)', 'Paciente', 'Consultório'];
+    
+    const rows = stats.filtered.map(app => {
+      let statusStr = 'Agendado';
+      if (app.status === 'completed') statusStr = 'Concluído';
+      if (app.status === 'cancelled') statusStr = 'Cancelado';
+
+      return [
+        format(app.date.toDate(), "dd/MM/yyyy HH:mm"),
+        statusStr,
+        app.duration.toString(),
+        app.patientName || '',
+        app.office || ''
+      ];
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + headers.join(';') + '\n' 
+      + rows.map(r => r.join(';')).join('\n');
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `produtividade_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const COLORS = ['#10b981', '#ef4444', '#3b82f6'];
+  const pieData = [
+    { name: 'Concluídas', value: stats.completed },
+    { name: 'Canceladas', value: stats.cancelled },
+    { name: 'Agendadas', value: stats.scheduled }
+  ].filter(d => d.value > 0);
 
   if (loading) return <div className="p-4">Carregando dados...</div>;
 
@@ -144,6 +186,14 @@ export default function Productivity() {
         </div>
         
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+          <button
+            onClick={exportCSV}
+            className="inline-flex justify-center items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Exportar CSV
+          </button>
+
           <select
             value={timeRange}
             onChange={(e) => setTimeRange(e.target.value as TimeRange)}
