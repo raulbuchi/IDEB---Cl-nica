@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { Calendar, Users, FileText, BarChart2, Settings, LogOut, Menu, X } from 'lucide-react';
+import { Calendar, Users, FileText, BarChart2, Settings, LogOut, Menu, X, DollarSign } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { logout } from '../firebase';
 import { clsx, type ClassValue } from 'clsx';
@@ -22,6 +22,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     { name: 'Pacientes', href: '/patients', icon: Users },
     { name: 'Prontuários', href: '/records', icon: FileText },
     { name: 'Produtividade', href: '/productivity', icon: BarChart2 },
+    { name: 'Financeiro', href: '/financial', icon: DollarSign },
+    ...(isAdmin ? [{ name: 'Profissionais', href: '/professionals', icon: Users }] : []),
     ...(isAdmin ? [{ name: 'Administração', href: '/admin', icon: Settings }] : []),
   ];
 

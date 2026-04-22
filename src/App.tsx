@@ -10,6 +10,8 @@ const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Patients = React.lazy(() => import('./pages/Patients'));
 const MedicalRecords = React.lazy(() => import('./pages/MedicalRecords'));
 const Productivity = React.lazy(() => import('./pages/Productivity'));
+const Financial = React.lazy(() => import('./pages/Financial'));
+const Professionals = React.lazy(() => import('./pages/Professionals'));
 const Admin = React.lazy(() => import('./pages/Admin'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -59,6 +61,14 @@ export default function App() {
               <Route path="/patients" element={<RequireAuth><Patients /></RequireAuth>} />
               <Route path="/records" element={<RequireAuth><MedicalRecords /></RequireAuth>} />
               <Route path="/productivity" element={<RequireAuth><Productivity /></RequireAuth>} />
+              <Route path="/financial" element={<RequireAuth><Financial /></RequireAuth>} />
+              <Route path="/professionals" element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <Professionals />
+                  </RequireAdmin>
+                </RequireAuth>
+              } />
               
               <Route path="/admin" element={
                 <RequireAuth>

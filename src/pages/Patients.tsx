@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
-import { Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Search } from 'lucide-react';
 
 interface Patient {
   id: string;
@@ -32,9 +32,11 @@ export default function Patients() {
   const [professionals, setProfessionals] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProfessionalFilter, setSelectedProfessionalFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
+  const [cpfError, setCpfError] = useState('');
   
   const [formData, setFormData] = useState({
     name: '',
@@ -50,6 +52,25 @@ export default function Patients() {
     healthInsuranceNumber: '',
     assignedProfessionalId: profile?.uid || ''
   });
+
+  const formatCPF = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    let formattedValue = numericValue;
+    if (numericValue.length > 9) {
+      formattedValue = numericValue.replace(/^(\d{3})(\d{3})(\d{3})(\d{1,2}).*/, '$1.$2.$3-$4');
+    } else if (numericValue.length > 6) {
+      formattedValue = numericValue.replace(/^(\d{3})(\d{3})(\d{1,3}).*/, '$1.$2.$3');
+    } else if (numericValue.length > 3) {
+      formattedValue = numericValue.replace(/^(\d{3})(\d{1,3}).*/, '$1.$2');
+    }
+    return formattedValue;
+  };
+
+  const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatCPF(e.target.value);
+    setFormData({ ...formData, cpf: formatted });
+    if (cpfError) setCpfError('');
+  };
 
   useEffect(() => {
     if (!profile) return;
@@ -87,6 +108,13 @@ export default function Patients() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (formData.cpf && !/^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(formData.cpf)) {
+      setCpfError('O CPF deve estar no formato XXX.XXX.XXX-XX');
+      return;
+    }
+    setCpfError('');
+
     try {
       if (editingPatient) {
         await updateDoc(doc(db, 'patients', editingPatient.id), {
@@ -165,15 +193,27 @@ export default function Patients() {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingPatient(null);
+    setCpfError('');
   };
 
   if (loading) return <div className="p-4">Carregando pacientes...</div>;
 
   const filteredPatients = patients.filter(patient => {
+    let matchesFilter = true;
     if (isAdmin && selectedProfessionalFilter !== 'all') {
-      return patient.assignedProfessionalId === selectedProfessionalFilter;
+      matchesFilter = patient.assignedProfessionalId === selectedProfessionalFilter;
     }
-    return true;
+    
+    let matchesSearch = true;
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      const nameMatch = patient.name.toLowerCase().includes(term);
+      const cpfMatch = patient.cpf?.toLowerCase().includes(term) || false;
+      const phoneMatch = patient.phone?.toLowerCase().includes(term) || false;
+      matchesSearch = nameMatch || cpfMatch || phoneMatch;
+    }
+
+    return matchesFilter && matchesSearch;
   });
 
   return (
@@ -184,6 +224,18 @@ export default function Patients() {
           <p className="mt-1 text-sm text-gray-500">Gerencie o cadastro de pacientes da clínica.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+          <div className="relative w-full sm:w-64">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              placeholder="Buscar por nome, CPF ou telefone..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            />
+          </div>
           {isAdmin && (
             <select
               value={selectedProfessionalFilter}
@@ -304,9 +356,12 @@ export default function Patients() {
                     <input
                       type="text"
                       value={formData.cpf}
-                      onChange={(e) => setFormData({...formData, cpf: e.target.value})}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                      onChange={handleCpfChange}
+                      placeholder="000.000.000-00"
+                      maxLength={14}
+                      className={`mt-1 block w-full rounded-md shadow-sm sm:text-sm p-2 border ${cpfError ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}`}
                     />
+                    {cpfError && <p className="mt-1 text-sm text-red-600">{cpfError}</p>}
                   </div>
 
                   <div>

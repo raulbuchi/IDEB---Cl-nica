@@ -97,6 +97,52 @@ export async function loginWithGoogle() {
   }
 }
 
+export async function loginDemo() {
+  const demoEmail = 'demo@ideb.com';
+  const demoPassword = 'demoPassword123!';
+  
+  try {
+    const result = await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
+    const user = result.user;
+    
+    // Check if user exists in Firestore
+    const userRef = doc(db, 'users', user.uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        uid: user.uid,
+        name: 'Administrador Demo',
+        email: user.email,
+        role: 'admin',
+        createdAt: new Date()
+      });
+    }
+  } catch (error: any) {
+    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+      try {
+        const result = await createUserWithEmailAndPassword(auth, demoEmail, demoPassword);
+        const user = result.user;
+        
+        const userRef = doc(db, 'users', user.uid);
+        await setDoc(userRef, {
+          uid: user.uid,
+          name: 'Administrador Demo',
+          email: user.email,
+          role: 'admin',
+          createdAt: new Date()
+        });
+      } catch (createError) {
+        console.error("Error creating demo user:", createError);
+        throw createError;
+      }
+    } else {
+      console.error("Error logging in with demo account:", error);
+      throw error;
+    }
+  }
+}
+
 export async function logout() {
   await signOut(auth);
 }

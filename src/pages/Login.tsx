@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { loginWithGoogle, loginWithEmail } from '../firebase';
+import { loginWithGoogle, loginWithEmail, loginDemo } from '../firebase';
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
@@ -26,6 +26,17 @@ export default function Login() {
       await loginWithEmail(email, password);
     } catch (err: any) {
       setError('E-mail ou senha incorretos.');
+      setLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      await loginDemo();
+    } catch (err: any) {
+      setError('Falha ao acessar conta demo.');
       setLoading(false);
     }
   };
@@ -94,7 +105,7 @@ export default function Login() {
               </div>
             </div>
 
-            <div>
+            <div className="space-y-3">
               <button
                 type="button"
                 onClick={handleGoogleLogin}
@@ -102,6 +113,15 @@ export default function Login() {
                 className="w-full flex justify-center py-2.5 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Entrar com Google
+              </button>
+              
+              <button
+                type="button"
+                onClick={handleDemoLogin}
+                disabled={loading}
+                className="w-full flex justify-center py-2.5 px-4 border border-blue-300 rounded-md shadow-sm text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Acessar Conta Demo (Admin)
               </button>
             </div>
           </div>

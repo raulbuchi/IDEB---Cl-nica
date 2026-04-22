@@ -2,9 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
-import { Plus, Edit2, Trash2, X, Calendar as CalendarIcon, Clock, MapPin } from 'lucide-react';
-import { format, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { Plus, Edit2, Trash2, X, Calendar as CalendarIcon, Clock, MapPin, RefreshCw, Bell, MessageCircle, Mail, Smartphone, List } from 'lucide-react';
+import { format, parseISO, startOfDay, endOfDay, addDays, addMonths, parse, startOfWeek, getDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+
+const locales = {
+  'pt-BR': ptBR,
+};
+
+const localizer = dateFnsLocalizer({
+  format,
+  parse,
+  startOfWeek,
+  getDay,
+  locales,
+});
 
 interface Appointment {
   id: string;
@@ -16,11 +30,19 @@ interface Appointment {
   office: string;
   status: 'scheduled' | 'completed' | 'cancelled';
   notes?: string;
+  reminderTiming?: string;
   createdAt: any;
 }
 
 interface Patient {
   id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+}
+
+interface Professional {
+  uid: string;
   name: string;
 }
 
@@ -28,18 +50,25 @@ export default function Dashboard() {
   const { profile, isAdmin } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+  const [reminderModalApt, setReminderModalApt] = useState<Appointment | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('calendar');
+  const [filterProfessionalId, setFilterProfessionalId] = useState('all');
+  const [filterOffice, setFilterOffice] = useState('all');
   
   const [formData, setFormData] = useState({
     patientId: '',
+    professionalId: '',
     date: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
     duration: 60,
     office: 'Consultório 1',
     status: 'scheduled' as const,
-    notes: ''
+    notes: '',
+    reminderTiming: '24h'
   });
 
   useEffect(() => {
@@ -70,14 +99,33 @@ export default function Dashboard() {
     const unsubscribePatients = onSnapshot(qPatients, (snapshot) => {
       const patientsData: Patient[] = [];
       snapshot.forEach((doc) => {
-        patientsData.push({ id: doc.id, name: doc.data().name } as Patient);
+        patientsData.push({ 
+          id: doc.id, 
+          name: doc.data().name,
+          phone: doc.data().phone,
+          email: doc.data().email
+        } as Patient);
       });
       setPatients(patientsData);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'patients'));
 
+    // Fetch professionals
+    const qProfessionals = query(collection(db, 'users'), where('role', '==', 'professional'));
+    const unsubscribeProfessionals = onSnapshot(qProfessionals, (snapshot) => {
+      const profData: Professional[] = [];
+      snapshot.forEach((doc) => {
+        profData.push({
+          uid: doc.data().uid,
+          name: doc.data().name || 'Profissional',
+        });
+      });
+      setProfessionals(profData);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'users'));
+
     return () => {
       unsubscribeAppts();
       unsubscribePatients();
+      unsubscribeProfessionals();
     };
   }, [profile, isAdmin]);
 
@@ -95,22 +143,25 @@ export default function Dashboard() {
         await updateDoc(doc(db, 'appointments', editingAppointment.id), {
           patientId: formData.patientId,
           patientName: selectedPatient.name,
-          date: appointmentDate,
-          duration: Number(formData.duration),
-          office: formData.office,
-          status: formData.status,
-          notes: formData.notes
-        });
-      } else {
-        await addDoc(collection(db, 'appointments'), {
-          patientId: formData.patientId,
-          patientName: selectedPatient.name,
-          professionalId: profile.uid,
+          professionalId: formData.professionalId || profile.uid,
           date: appointmentDate,
           duration: Number(formData.duration),
           office: formData.office,
           status: formData.status,
           notes: formData.notes,
+          reminderTiming: formData.reminderTiming
+        });
+      } else {
+        await addDoc(collection(db, 'appointments'), {
+          patientId: formData.patientId,
+          patientName: selectedPatient.name,
+          professionalId: formData.professionalId || profile.uid,
+          date: appointmentDate,
+          duration: Number(formData.duration),
+          office: formData.office,
+          status: formData.status,
+          notes: formData.notes,
+          reminderTiming: formData.reminderTiming,
           createdAt: new Date()
         });
       }
@@ -135,23 +186,124 @@ export default function Dashboard() {
       setEditingAppointment(appointment);
       setFormData({
         patientId: appointment.patientId,
+        professionalId: appointment.professionalId || '',
         date: format(appointment.date.toDate(), "yyyy-MM-dd'T'HH:mm"),
         duration: appointment.duration,
         office: appointment.office,
         status: appointment.status,
-        notes: appointment.notes || ''
+        notes: appointment.notes || '',
+        reminderTiming: appointment.reminderTiming || 'none'
       });
     } else {
       setEditingAppointment(null);
       setFormData({
         patientId: '',
+        professionalId: isAdmin ? '' : profile?.uid || '',
         date: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
         duration: 60,
         office: 'Consultório 1',
         status: 'scheduled',
-        notes: ''
+        notes: '',
+        reminderTiming: '24h'
       });
     }
+    setIsModalOpen(true);
+  };
+
+  const handleScheduleReturn = (appointment: Appointment) => {
+    setEditingAppointment(null);
+    setFormData({
+      patientId: appointment.patientId,
+      professionalId: appointment.professionalId || '',
+      date: format(addMonths(appointment.date.toDate(), 1), "yyyy-MM-dd'T'HH:mm"),
+      duration: appointment.duration,
+      office: appointment.office,
+      status: 'scheduled',
+      notes: 'Retorno',
+      reminderTiming: '24h'
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleSendReminder = (method: 'whatsapp' | 'sms' | 'email') => {
+    if (!reminderModalApt) return;
+    
+    const patient = patients.find(p => p.id === reminderModalApt.patientId);
+    if (!patient) {
+      alert('Paciente não encontrado.');
+      return;
+    }
+
+    const dateStr = format(reminderModalApt.date.toDate(), "dd/MM/yyyy 'às' HH:mm");
+    const msg = `Olá ${patient.name}, este é um lembrete da sua consulta no dia ${dateStr} no ${reminderModalApt.office}.`;
+
+    if (method === 'whatsapp') {
+      if (!patient.phone) {
+        alert('Paciente não possui telefone cadastrado.');
+        return;
+      }
+      const phone = patient.phone.replace(/\D/g, '');
+      window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    } else if (method === 'sms') {
+      if (!patient.phone) {
+        alert('Paciente não possui telefone cadastrado.');
+        return;
+      }
+      const phone = patient.phone.replace(/\D/g, '');
+      window.open(`sms:+55${phone}?body=${encodeURIComponent(msg)}`, '_self');
+    } else if (method === 'email') {
+      if (!patient.email) {
+        alert('Paciente não possui e-mail cadastrado.');
+        return;
+      }
+      window.open(`mailto:${patient.email}?subject=Lembrete de Consulta&body=${encodeURIComponent(msg)}`, '_self');
+    }
+    setReminderModalApt(null);
+  };
+
+  const handleDirectWhatsApp = (appointment: Appointment) => {
+    const patient = patients.find(p => p.id === appointment.patientId);
+    if (!patient || !patient.phone) {
+      alert('Paciente não encontrado ou sem telefone cadastrado.');
+      return;
+    }
+    const dateStr = format(appointment.date.toDate(), "dd/MM/yyyy 'às' HH:mm");
+    const msg = `Olá ${patient.name}, este é um lembrete da sua consulta no dia ${dateStr} no ${appointment.office}.`;
+    const phone = patient.phone.replace(/\D/g, '');
+    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const setQuickDate = (days: number, months: number = 0) => {
+    let newDate = new Date();
+    if (days > 0) newDate = addDays(newDate, days);
+    if (months > 0) newDate = addMonths(newDate, months);
+    setFormData({ ...formData, date: format(newDate, "yyyy-MM-dd'T'HH:mm") });
+  };
+
+  const handleQuickSchedule = (daysToAdd: number) => {
+    let targetDate = new Date();
+    let addedDays = 0;
+    while (addedDays < daysToAdd) {
+      targetDate = addDays(targetDate, 1);
+      // Skip weekends (0 = Sunday, 6 = Saturday)
+      if (targetDate.getDay() !== 0 && targetDate.getDay() !== 6) {
+        addedDays++;
+      }
+    }
+    
+    // Set time to 09:00 by default for quick schedules
+    targetDate.setHours(9, 0, 0, 0);
+
+    setEditingAppointment(null);
+    setFormData({
+      patientId: '',
+      date: format(targetDate, "yyyy-MM-dd'T'HH:mm"),
+      duration: 60,
+      office: 'Consultório 1',
+      status: 'scheduled',
+      notes: '',
+      reminderTiming: '24h'
+    });
     setIsModalOpen(true);
   };
 
@@ -180,26 +332,146 @@ export default function Dashboard() {
 
   if (loading) return <div className="p-4">Carregando agenda...</div>;
 
+  const filteredAppointments = appointments.filter((apt) => {
+    let matchProf = true;
+    if (isAdmin && filterProfessionalId !== 'all') {
+      matchProf = apt.professionalId === filterProfessionalId;
+    }
+    
+    let matchOffice = true;
+    if (filterOffice !== 'all') {
+      matchOffice = apt.office === filterOffice;
+    }
+
+    return matchProf && matchOffice;
+  });
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Agenda</h2>
           <p className="mt-1 text-sm text-gray-500">Gerencie suas consultas e horários.</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          Nova Consulta
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex bg-gray-100 p-1 rounded-md mr-2">
+            <button
+              onClick={() => setViewMode('calendar')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center ${viewMode === 'calendar' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <CalendarIcon className="w-4 h-4 mr-1.5" />
+              Calendário
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              <List className="w-4 h-4 mr-1.5" />
+              Lista
+            </button>
+          </div>
+          <button
+            onClick={() => handleQuickSchedule(1)}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
+          >
+            Amanhã
+          </button>
+          <button
+            onClick={() => handleQuickSchedule(3)}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
+          >
+            Em 3 dias úteis
+          </button>
+          <button
+            onClick={() => handleQuickSchedule(7)}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
+          >
+            Em 7 dias úteis
+          </button>
+          <button
+            onClick={() => openModal()}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Nova Consulta
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white shadow overflow-hidden sm:rounded-md">
-        <ul className="divide-y divide-gray-200">
-          {appointments.map((apt) => {
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col sm:flex-row gap-4 items-center">
+        <div className="text-sm font-medium text-gray-700">Filtros:</div>
+        {isAdmin && (
+          <select
+            value={filterProfessionalId}
+            onChange={(e) => setFilterProfessionalId(e.target.value)}
+            className="block w-full sm:w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+          >
+            <option value="all">Todos os Profissionais</option>
+            {professionals.map(p => (
+              <option key={p.uid} value={p.uid}>{p.name}</option>
+            ))}
+          </select>
+        )}
+        <select
+          value={filterOffice}
+          onChange={(e) => setFilterOffice(e.target.value)}
+          className="block w-full sm:w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+        >
+          <option value="all">Todas as Salas/Consultórios</option>
+          <option value="Consultório 1">Consultório 1</option>
+          <option value="Consultório 2">Consultório 2</option>
+          <option value="Consultório 3">Consultório 3</option>
+          <option value="Sala de Exames">Sala de Exames</option>
+        </select>
+      </div>
+
+      {viewMode === 'calendar' ? (
+        <div className="bg-white shadow rounded-lg p-4 h-[600px]">
+          <Calendar
+            localizer={localizer}
+            events={filteredAppointments.map(apt => {
+              const start = apt.date.toDate();
+              const end = new Date(start.getTime() + apt.duration * 60000);
+              const professional = professionals.find(p => p.uid === apt.professionalId);
+              const profName = professional ? professional.name : 'Desconhecido';
+              return {
+                ...apt,
+                title: `${profName} - ${apt.office}: ${apt.patientName}`,
+                start,
+                end,
+              };
+            })}
+            startAccessor="start"
+            endAccessor="end"
+            style={{ height: '100%' }}
+            messages={{
+              next: "Próximo",
+              previous: "Anterior",
+              today: "Hoje",
+              month: "Mês",
+              week: "Semana",
+              day: "Dia",
+              agenda: "Agenda",
+              date: "Data",
+              time: "Hora",
+              event: "Evento",
+              noEventsInRange: "Não há consultas neste período.",
+            }}
+            onSelectEvent={(event) => openModal(event as Appointment)}
+            eventPropGetter={(event) => {
+              let backgroundColor = '#3b82f6'; // blue for scheduled
+              if (event.status === 'completed') backgroundColor = '#10b981'; // green
+              if (event.status === 'cancelled') backgroundColor = '#ef4444'; // red
+              return { style: { backgroundColor } };
+            }}
+          />
+        </div>
+      ) : (
+        <div className="bg-white shadow overflow-hidden sm:rounded-md">
+          <ul className="divide-y divide-gray-200">
+          {filteredAppointments.map((apt) => {
             const date = apt.date.toDate();
+            const professional = professionals.find(p => p.uid === apt.professionalId);
             return (
               <li key={apt.id}>
                 <div className="px-4 py-4 flex items-center sm:px-6">
@@ -224,17 +496,43 @@ export default function Dashboard() {
                           <MapPin className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
                           {apt.office}
                         </div>
+                        {isAdmin && professional && (
+                          <div className="flex items-center mt-2 sm:mt-0 px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium">
+                            {professional.name}
+                          </div>
+                        )}
                       </div>
+                      {apt.notes && (
+                        <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded border border-gray-100">
+                          <span className="font-medium text-gray-700">Observações:</span> {apt.notes}
+                        </div>
+                      )}
                     </div>
                     <div className="mt-4 flex-shrink-0 sm:mt-0 sm:ml-5 flex gap-2">
                       <button
+                        onClick={() => setReminderModalApt(apt)}
+                        title="Enviar Lembrete"
+                        className="p-2 text-gray-400 hover:text-yellow-600"
+                      >
+                        <Bell className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => handleScheduleReturn(apt)}
+                        title="Agendar Retorno"
+                        className="p-2 text-gray-400 hover:text-green-600"
+                      >
+                        <RefreshCw className="w-5 h-5" />
+                      </button>
+                      <button
                         onClick={() => openModal(apt)}
+                        title="Editar Consulta"
                         className="p-2 text-gray-400 hover:text-blue-600"
                       >
                         <Edit2 className="w-5 h-5" />
                       </button>
                       <button
                         onClick={() => handleDelete(apt.id)}
+                        title="Cancelar Consulta"
                         className="p-2 text-gray-400 hover:text-red-600"
                       >
                         <Trash2 className="w-5 h-5" />
@@ -245,11 +543,12 @@ export default function Dashboard() {
               </li>
             );
           })}
-          {appointments.length === 0 && (
+          {filteredAppointments.length === 0 && (
             <li className="px-4 py-8 text-center text-gray-500">Nenhuma consulta agendada.</li>
           )}
-        </ul>
-      </div>
+          </ul>
+        </div>
+      )}
 
       {/* Modal */}
       {isModalOpen && (
@@ -267,19 +566,38 @@ export default function Dashboard() {
               </div>
               
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Paciente *</label>
-                  <select
-                    required
-                    value={formData.patientId}
-                    onChange={(e) => setFormData({...formData, patientId: e.target.value})}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
-                  >
-                    <option value="">Selecione um paciente</option>
-                    {patients.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Paciente *</label>
+                    <select
+                      required
+                      value={formData.patientId}
+                      onChange={(e) => setFormData({...formData, patientId: e.target.value})}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    >
+                      <option value="">Selecione um paciente</option>
+                      {patients.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {isAdmin && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Profissional *</label>
+                      <select
+                        required
+                        value={formData.professionalId || ''}
+                        onChange={(e) => setFormData({...formData, professionalId: e.target.value})}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                      >
+                        <option value="">Selecione um profissional</option>
+                        {professionals.map(p => (
+                          <option key={p.uid} value={p.uid}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
@@ -292,6 +610,11 @@ export default function Dashboard() {
                       onChange={(e) => setFormData({...formData, date: e.target.value})}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
                     />
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <button type="button" onClick={() => setQuickDate(7)} className="text-[10px] bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-gray-600">+1 Sem</button>
+                      <button type="button" onClick={() => setQuickDate(15)} className="text-[10px] bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-gray-600">+15 Dias</button>
+                      <button type="button" onClick={() => setQuickDate(0, 1)} className="text-[10px] bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-gray-600">+1 Mês</button>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Duração (min) *</label>
@@ -334,31 +657,118 @@ export default function Dashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Observações</label>
+                  <label className="block text-sm font-medium text-gray-700">Lembrete Automático</label>
+                  <select
+                    value={formData.reminderTiming}
+                    onChange={(e) => setFormData({...formData, reminderTiming: e.target.value})}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                  >
+                    <option value="none">Não enviar</option>
+                    <option value="24h">24 horas antes</option>
+                    <option value="48h">48 horas antes</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Requer configuração de backend para envio automático.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Observações do Agendamento</label>
                   <textarea
                     rows={3}
                     value={formData.notes}
                     onChange={(e) => setFormData({...formData, notes: e.target.value})}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+                    placeholder="Informações adicionais sobre a consulta (opcional)"
                   />
                 </div>
 
-                <div className="mt-5 sm:mt-6 flex gap-3">
+                <div className="mt-5 sm:mt-6 flex flex-col sm:flex-row gap-3">
+                  {editingAppointment && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                           e.preventDefault();
+                           handleDirectWhatsApp(editingAppointment);
+                        }}
+                        className="inline-flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-base font-medium text-green-700 shadow-sm hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 sm:text-sm items-center"
+                      >
+                        <MessageCircle className="w-4 h-4 mr-2" />
+                        Avisar via WhatsApp
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                           e.preventDefault();
+                           handleScheduleReturn(editingAppointment);
+                        }}
+                        className="inline-flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-base font-medium text-emerald-700 shadow-sm hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 sm:text-sm items-center"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Agendar Retorno
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={closeModal}
-                    className="mt-3 inline-flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-base font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:mt-0 sm:text-sm"
+                    className="inline-flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-base font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:text-sm items-center"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="inline-flex w-full justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-base font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:text-sm"
+                    className="inline-flex w-full justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-base font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:text-sm items-center"
                   >
                     Salvar
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reminder Modal */}
+      {reminderModalApt && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
+            <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={() => setReminderModalApt(null)} />
+            <div className="relative inline-block w-full max-w-sm p-6 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-2xl">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium leading-6 text-gray-900">
+                  Enviar Lembrete
+                </h3>
+                <button onClick={() => setReminderModalApt(null)} className="text-gray-400 hover:text-gray-500">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <p className="text-sm text-gray-500 mb-6">
+                Escolha como deseja enviar o lembrete para <strong>{reminderModalApt.patientName}</strong>.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => handleSendReminder('whatsapp')}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
+                >
+                  <MessageCircle className="w-5 h-5 mr-2" />
+                  WhatsApp
+                </button>
+                <button
+                  onClick={() => handleSendReminder('sms')}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <Smartphone className="w-5 h-5 mr-2" />
+                  SMS
+                </button>
+                <button
+                  onClick={() => handleSendReminder('email')}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <Mail className="w-5 h-5 mr-2" />
+                  E-mail
+                </button>
+              </div>
             </div>
           </div>
         </div>

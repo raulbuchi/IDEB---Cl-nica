@@ -12,6 +12,10 @@
         "professionalId": { "type": "string", "description": "CRM, CRP, etc." },
         "specialty": { "type": "string" },
         "phone": { "type": "string" },
+        "rg": { "type": "string" },
+        "cpfCnpj": { "type": "string" },
+        "address": { "type": "string" },
+        "socialMedia": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "name", "email", "role", "createdAt"]
@@ -52,6 +56,7 @@
         "office": { "type": "string", "description": "Consultório" },
         "status": { "type": "string", "enum": ["scheduled", "completed", "cancelled"] },
         "notes": { "type": "string" },
+        "reminderTiming": { "type": "string", "enum": ["none", "24h", "48h"], "description": "Configuration for when to send the reminder" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["patientId", "patientName", "professionalId", "date", "duration", "office", "status", "createdAt"]
@@ -69,6 +74,24 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["patientId", "professionalId", "date", "content", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "A payment made by a patient for a professional",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "method": { "type": "string", "enum": ["pix", "cash", "credit_card", "debit_card", "health_insurance"] },
+        "methodDetails": { "type": "string" },
+        "patientId": { "type": "string" },
+        "patientName": { "type": "string" },
+        "professionalId": { "type": "string" },
+        "professionalName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "date", "method", "patientId", "patientName", "professionalId", "professionalName", "createdAt"]
     }
   },
   "firestore": {
@@ -87,6 +110,10 @@
     "/medicalRecords/{recordId}": {
       "schema": { "$ref": "#/entities/MedicalRecord" },
       "description": "Collection of medical records"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Collection of payments"
     }
   }
 }

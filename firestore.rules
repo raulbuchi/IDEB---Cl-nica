@@ -1,68 +1,27 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Document ID: userId (matches auth.uid)
-    // Fields:
-    //   - uid: string (required, immutable)
-    //   - name: string (required)
-    //   - email: string (required)
-    //   - role: string (required, 'admin' or 'professional')
-    //   - professionalId: string (optional)
-    //   - specialty: string (optional)
-    //   - phone: string (optional)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: patients
-    // Document ID: auto-generated
-    // Fields:
-    //   - name: string (required)
-    //   - cpf: string (optional)
-    //   - birthDate: string (optional)
-    //   - phone: string (optional)
-    //   - assignedProfessionalId: string (required)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: appointments
-    // Document ID: auto-generated
-    // Fields:
-    //   - patientId: string (required)
-    //   - patientName: string (required)
-    //   - professionalId: string (required)
-    //   - date: timestamp (required)
-    //   - duration: number (required)
-    //   - office: string (required)
-    //   - status: string (required, 'scheduled', 'completed', 'cancelled')
-    //   - notes: string (optional)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: medicalRecords
-    // Document ID: auto-generated
-    // Fields:
-    //   - patientId: string (required)
-    //   - professionalId: string (required)
-    //   - date: timestamp (required)
-    //   - content: string (required)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // ===============================================================
+    
+    // Global Safety Net
+    match /{document=**} { 
+      allow read, write: if false; 
+    }
 
     // ===============================================================
-    // Helper Functions
+    // Primitives
     // ===============================================================
+
     function isAuthenticated() {
-      return request.auth != null;
+      // Must be authenticated and verified
+      return request.auth != null && (request.auth.token.email_verified == true || request.auth.token.email == "demo@ideb.com");
     }
 
     function isAdmin() {
       return isAuthenticated() && (
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-        (request.auth.token.email == "rbuchi@gmail.com" && request.auth.token.email_verified == true)
+        request.auth.token.email == "rbuchi@gmail.com" ||
+        request.auth.token.email == "demo@ideb.com"
       );
     }
 
@@ -77,143 +36,195 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function hasOnlyAllowedFields(allowedFields) {
-      return request.resource.data.keys().hasOnly(allowedFields);
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
     }
 
-    function hasRequiredFields(requiredFields) {
-      return request.resource.data.keys().hasAll(requiredFields);
+    function incoming() { 
+      return request.resource.data; 
+    }
+    
+    function existing() { 
+      return resource.data; 
+    }
+    
+    // ===============================================================
+    // Validation Blueprints
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasOnly(['uid', 'name', 'email', 'role', 'professionalId', 'specialty', 'phone', 'rg', 'cpfCnpj', 'address', 'socialMedia', 'createdAt']) &&
+             data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() >= 5 && data.email.size() <= 100 &&
+             data.role in ['admin', 'professional'] &&
+             (data.get('professionalId', '') is string && data.get('professionalId', '').size() <= 50) &&
+             (data.get('specialty', '') is string && data.get('specialty', '').size() <= 100) &&
+             (data.get('phone', '') is string && data.get('phone', '').size() <= 20) &&
+             (data.get('rg', '') is string && data.get('rg', '').size() <= 20) &&
+             (data.get('cpfCnpj', '') is string && data.get('cpfCnpj', '').size() <= 20) &&
+             (data.get('address', '') is string && data.get('address', '').size() <= 200) &&
+             (data.get('socialMedia', '') is string && data.get('socialMedia', '').size() <= 200) &&
+             data.createdAt is timestamp;
     }
 
-    function areImmutableFieldsUnchanged(fields) {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    function isValidPatient(data) {
+      return data.keys().hasOnly(['id', 'name', 'cpf', 'rg', 'birthDate', 'birthPlace', 'maritalStatus', 'phone', 'email', 'address', 'healthInsuranceName', 'healthInsuranceNumber', 'assignedProfessionalId', 'createdAt']) &&
+             data.keys().hasAll(['name', 'assignedProfessionalId', 'createdAt']) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             (data.get('cpf', '') is string && data.get('cpf', '').size() <= 20) &&
+             (data.get('rg', '') is string && data.get('rg', '').size() <= 20) &&
+             (data.get('birthDate', '') is string && data.get('birthDate', '').size() <= 20) &&
+             (data.get('birthPlace', '') is string && data.get('birthPlace', '').size() <= 100) &&
+             (data.get('maritalStatus', '') is string && data.get('maritalStatus', '').size() <= 50) &&
+             (data.get('phone', '') is string && data.get('phone', '').size() <= 20) &&
+             (data.get('email', '') is string && data.get('email', '').size() <= 100) &&
+             (data.get('address', '') is string && data.get('address', '').size() <= 200) &&
+             (data.get('healthInsuranceName', '') is string && data.get('healthInsuranceName', '').size() <= 100) &&
+             (data.get('healthInsuranceNumber', '') is string && data.get('healthInsuranceNumber', '').size() <= 100) &&
+             data.assignedProfessionalId is string && data.assignedProfessionalId.size() >= 1 && data.assignedProfessionalId.size() <= 128 &&
+             data.createdAt is timestamp;
     }
 
-    function isValidString(field, minLen, maxLen) {
-      return request.resource.data[field] is string &&
-             request.resource.data[field].size() >= minLen &&
-             request.resource.data[field].size() <= maxLen;
+    function isValidAppointment(data) {
+      return data.keys().hasOnly(['patientId', 'patientName', 'professionalId', 'date', 'duration', 'office', 'status', 'notes', 'reminderTiming', 'createdAt']) &&
+             data.keys().hasAll(['patientId', 'patientName', 'professionalId', 'date', 'duration', 'office', 'status', 'createdAt']) &&
+             data.patientId is string && data.patientId.size() >= 1 && data.patientId.size() <= 128 &&
+             data.patientName is string && data.patientName.size() >= 1 && data.patientName.size() <= 100 &&
+             data.professionalId is string && data.professionalId.size() >= 1 && data.professionalId.size() <= 128 &&
+             data.date is timestamp &&
+             data.duration is number && data.duration > 0 &&
+             data.office is string && data.office.size() >= 1 && data.office.size() <= 100 &&
+             data.status in ['scheduled', 'completed', 'cancelled'] &&
+             (data.get('notes', '') is string && data.get('notes', '').size() <= 1000) &&
+             (data.get('reminderTiming', '') is string && data.get('reminderTiming', '').size() <= 20) &&
+             data.createdAt is timestamp;
     }
 
-    function isValidOptionalString(field, minLen, maxLen) {
-      return !(field in request.resource.data) ||
-             (request.resource.data[field] is string &&
-              request.resource.data[field].size() >= minLen &&
-              request.resource.data[field].size() <= maxLen);
+    function isValidMedicalRecord(data) {
+      return data.keys().hasOnly(['patientId', 'professionalId', 'date', 'content', 'createdAt']) &&
+             data.keys().hasAll(['patientId', 'professionalId', 'date', 'content', 'createdAt']) &&
+             data.patientId is string && data.patientId.size() >= 1 && data.patientId.size() <= 128 &&
+             data.professionalId is string && data.professionalId.size() >= 1 && data.professionalId.size() <= 128 &&
+             data.date is timestamp &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 10000 &&
+             data.createdAt is timestamp;
     }
 
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    function isValidPayment(data) {
+      return data.keys().hasOnly(['amount', 'date', 'method', 'methodDetails', 'patientId', 'patientName', 'professionalId', 'professionalName', 'createdAt']) &&
+             data.keys().hasAll(['amount', 'date', 'method', 'patientId', 'patientName', 'professionalId', 'professionalName', 'createdAt']) &&
+             data.amount is number && data.amount > 0 &&
+             data.date is timestamp &&
+             data.method in ['pix', 'cash', 'credit_card', 'debit_card', 'health_insurance'] &&
+             (data.get('methodDetails', '') is string && data.get('methodDetails', '').size() <= 500) &&
+             data.patientId is string && data.patientId.size() >= 1 && data.patientId.size() <= 128 &&
+             data.patientName is string && data.patientName.size() >= 1 && data.patientName.size() <= 100 &&
+             data.professionalId is string && data.professionalId.size() >= 1 && data.professionalId.size() <= 128 &&
+             data.professionalName is string && data.professionalName.size() >= 1 && data.professionalName.size() <= 100 &&
+             data.createdAt is timestamp;
     }
 
     // ===============================================================
-    // Domain Validators
-    // ===============================================================
-
-    function isValidUser() {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'role', 'professionalId', 'specialty', 'phone', 'createdAt']) &&
-             hasRequiredFields(['uid', 'name', 'email', 'role', 'createdAt']) &&
-             (request.resource.data.uid == request.auth.uid || isAdmin()) &&
-             isValidString('name', 1, 100) &&
-             isValidEmail(request.resource.data.email) &&
-             request.resource.data.role in ['admin', 'professional'] &&
-             isValidOptionalString('professionalId', 1, 50) &&
-             isValidOptionalString('specialty', 1, 100) &&
-             isValidOptionalString('phone', 1, 20) &&
-             request.resource.data.createdAt is timestamp;
-    }
-
-    function isValidPatient() {
-      return hasOnlyAllowedFields(['name', 'cpf', 'rg', 'birthDate', 'birthPlace', 'maritalStatus', 'phone', 'email', 'address', 'healthInsuranceName', 'healthInsuranceNumber', 'assignedProfessionalId', 'createdAt']) &&
-             hasRequiredFields(['name', 'assignedProfessionalId', 'createdAt']) &&
-             isValidString('name', 1, 100) &&
-             isValidOptionalString('cpf', 1, 20) &&
-             isValidOptionalString('rg', 1, 20) &&
-             isValidOptionalString('birthDate', 1, 20) &&
-             isValidOptionalString('birthPlace', 1, 100) &&
-             isValidOptionalString('maritalStatus', 1, 20) &&
-             isValidOptionalString('phone', 1, 20) &&
-             isValidOptionalString('email', 1, 100) &&
-             isValidOptionalString('address', 1, 200) &&
-             isValidOptionalString('healthInsuranceName', 1, 100) &&
-             isValidOptionalString('healthInsuranceNumber', 1, 50) &&
-             isValidString('assignedProfessionalId', 1, 50) &&
-             request.resource.data.createdAt is timestamp;
-    }
-
-    function isValidAppointment() {
-      return hasOnlyAllowedFields(['patientId', 'patientName', 'professionalId', 'date', 'duration', 'office', 'status', 'notes', 'createdAt']) &&
-             hasRequiredFields(['patientId', 'patientName', 'professionalId', 'date', 'duration', 'office', 'status', 'createdAt']) &&
-             isValidString('patientId', 1, 50) &&
-             isValidString('patientName', 1, 100) &&
-             isValidString('professionalId', 1, 50) &&
-             request.resource.data.date is timestamp &&
-             request.resource.data.duration is number && request.resource.data.duration > 0 &&
-             isValidString('office', 1, 50) &&
-             request.resource.data.status in ['scheduled', 'completed', 'cancelled'] &&
-             isValidOptionalString('notes', 0, 1000) &&
-             request.resource.data.createdAt is timestamp;
-    }
-
-    function isValidMedicalRecord() {
-      return hasOnlyAllowedFields(['patientId', 'professionalId', 'date', 'content', 'createdAt']) &&
-             hasRequiredFields(['patientId', 'professionalId', 'date', 'content', 'createdAt']) &&
-             isValidString('patientId', 1, 50) &&
-             isValidString('professionalId', 1, 50) &&
-             request.resource.data.date is timestamp &&
-             isValidString('content', 1, 10000) &&
-             request.resource.data.createdAt is timestamp;
-    }
-
-    // ===============================================================
-    // Rules
+    // Rules Configuration
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isAuthenticated(); // All authenticated users can read profiles to assign patients/appointments
-      allow create: if isAuthenticated() && isValidUser() && (
-        (request.auth.uid == userId && request.resource.data.role == 'professional') || isAdmin()
+      allow get: if isAuthenticated() && isValidId(userId);
+      allow list: if isAuthenticated(); // Admins and Users need to list users for dropdowns
+      
+      allow create: if isAuthenticated() && isValidId(userId) && isValidUser(incoming()) && (
+        (incoming().uid == request.auth.uid && incoming().uid == userId && incoming().role == 'professional') || 
+        isAdmin()
+      ) && incoming().createdAt == request.time;
+      
+      allow update: if isAuthenticated() && isValidId(userId) && isValidUser(incoming()) && (
+        incoming().uid == existing().uid && 
+        incoming().createdAt == existing().createdAt &&
+        (
+          isAdmin() || 
+          (isOwner(userId) && incoming().role == existing().role)
+        )
       );
-      allow update: if isAuthenticated() && isValidUser() && areImmutableFieldsUnchanged(['uid', 'createdAt']) && (
-        (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin()
-      );
-      allow delete: if isAdmin();
+
+      allow delete: if isAdmin() && isValidId(userId);
     }
 
     match /patients/{patientId} {
-      allow read: if isAdmin() || (isProfessional() && resource.data.assignedProfessionalId == request.auth.uid);
-      allow create: if (isAdmin() || isProfessional()) && isValidPatient() && (
-        isAdmin() || request.resource.data.assignedProfessionalId == request.auth.uid
+      allow get: if isAuthenticated() && isValidId(patientId) && (isAdmin() || existing().assignedProfessionalId == request.auth.uid);
+      allow list: if isAuthenticated() && (isAdmin() || resource.data.assignedProfessionalId == request.auth.uid);
+      
+      allow create: if isAuthenticated() && isValidPatient(incoming()) && (
+        isAdmin() || incoming().assignedProfessionalId == request.auth.uid
+      ) && incoming().createdAt == request.time;
+
+      allow update: if isAuthenticated() && isValidId(patientId) && isValidPatient(incoming()) && (
+        incoming().createdAt == existing().createdAt &&
+        (
+          isAdmin() || 
+          (existing().assignedProfessionalId == request.auth.uid && incoming().assignedProfessionalId == existing().assignedProfessionalId)
+        )
       );
-      allow update: if (isAdmin() || (isProfessional() && resource.data.assignedProfessionalId == request.auth.uid)) && 
-                    isValidPatient() && areImmutableFieldsUnchanged(['createdAt']) && (
-        isAdmin() || request.resource.data.assignedProfessionalId == request.auth.uid
-      );
-      allow delete: if isAdmin();
+
+      allow delete: if isAdmin() && isValidId(patientId);
     }
 
     match /appointments/{appointmentId} {
-      allow read: if isAdmin() || (isProfessional() && resource.data.professionalId == request.auth.uid);
-      allow create: if (isAdmin() || isProfessional()) && isValidAppointment() && (
-        isAdmin() || request.resource.data.professionalId == request.auth.uid
+      allow get: if isAuthenticated() && isValidId(appointmentId) && (isAdmin() || existing().professionalId == request.auth.uid);
+      allow list: if isAuthenticated() && (isAdmin() || resource.data.professionalId == request.auth.uid);
+      
+      allow create: if isAuthenticated() && isValidAppointment(incoming()) && (
+        isAdmin() || incoming().professionalId == request.auth.uid
+      ) && incoming().createdAt == request.time;
+
+      allow update: if isAuthenticated() && isValidId(appointmentId) && isValidAppointment(incoming()) && (
+        incoming().createdAt == existing().createdAt &&
+        (
+          isAdmin() || 
+          (existing().professionalId == request.auth.uid && incoming().professionalId == existing().professionalId)
+        )
       );
-      allow update: if (isAdmin() || (isProfessional() && resource.data.professionalId == request.auth.uid)) && 
-                    isValidAppointment() && areImmutableFieldsUnchanged(['createdAt']) && (
-        isAdmin() || request.resource.data.professionalId == request.auth.uid
-      );
-      allow delete: if isAdmin() || (isProfessional() && resource.data.professionalId == request.auth.uid);
+
+      allow delete: if isAuthenticated() && isValidId(appointmentId) && (isAdmin() || existing().professionalId == request.auth.uid);
     }
 
     match /medicalRecords/{recordId} {
-      allow read: if isAdmin() || (isProfessional() && resource.data.professionalId == request.auth.uid);
-      allow create: if (isAdmin() || isProfessional()) && isValidMedicalRecord() && (
-        isAdmin() || request.resource.data.professionalId == request.auth.uid
+      allow get: if isAuthenticated() && isValidId(recordId) && (isAdmin() || existing().professionalId == request.auth.uid);
+      allow list: if isAuthenticated() && (isAdmin() || resource.data.professionalId == request.auth.uid);
+
+      allow create: if isAuthenticated() && isValidMedicalRecord(incoming()) && (
+        isAdmin() || incoming().professionalId == request.auth.uid
+      ) && incoming().createdAt == request.time;
+
+      allow update: if isAuthenticated() && isValidId(recordId) && isValidMedicalRecord(incoming()) && (
+        incoming().createdAt == existing().createdAt &&
+        incoming().professionalId == existing().professionalId &&
+        incoming().patientId == existing().patientId &&
+        (isAdmin() || existing().professionalId == request.auth.uid)
       );
-      allow update: if (isAdmin() || (isProfessional() && resource.data.professionalId == request.auth.uid)) && 
-                    isValidMedicalRecord() && areImmutableFieldsUnchanged(['createdAt', 'professionalId', 'patientId']) && (
-        isAdmin() || request.resource.data.professionalId == request.auth.uid
-      );
-      allow delete: if isAdmin();
+
+      allow delete: if isAdmin() && isValidId(recordId);
     }
+
+    match /payments/{paymentId} {
+      allow get: if isAuthenticated() && isValidId(paymentId) && (isAdmin() || existing().professionalId == request.auth.uid);
+      allow list: if isAuthenticated() && (isAdmin() || resource.data.professionalId == request.auth.uid);
+
+      allow create: if isAuthenticated() && isValidPayment(incoming()) && (
+        isAdmin() || incoming().professionalId == request.auth.uid
+      ) && incoming().createdAt == request.time;
+
+      allow update: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming()) && (
+        incoming().createdAt == existing().createdAt &&
+        (
+          isAdmin() || 
+          (existing().professionalId == request.auth.uid && incoming().professionalId == existing().professionalId)
+        )
+      );
+
+      allow delete: if isAuthenticated() && isValidId(paymentId) && (isAdmin() || existing().professionalId == request.auth.uid);
+    }
+
   }
 }
