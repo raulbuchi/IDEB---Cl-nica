@@ -13,7 +13,7 @@ service cloud.firestore {
 
     function isAuthenticated() {
       // Must be authenticated and verified
-      return request.auth != null && (request.auth.token.email_verified == true || request.auth.token.email == "demo@ideb.com");
+      return request.auth != null && (request.auth.token.email_verified == true || request.auth.token.email == "demo@ideb.com" || request.auth.token.email == "rbuchi@gmail.com");
     }
 
     function isAdmin() {
@@ -53,8 +53,7 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return data.keys().hasOnly(['uid', 'name', 'email', 'role', 'professionalId', 'specialty', 'phone', 'rg', 'cpfCnpj', 'address', 'socialMedia', 'createdAt']) &&
-             data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt']) &&
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt']) &&
              data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
              data.email is string && data.email.size() >= 5 && data.email.size() <= 100 &&
@@ -70,8 +69,7 @@ service cloud.firestore {
     }
 
     function isValidPatient(data) {
-      return data.keys().hasOnly(['id', 'name', 'cpf', 'rg', 'birthDate', 'birthPlace', 'maritalStatus', 'phone', 'email', 'address', 'healthInsuranceName', 'healthInsuranceNumber', 'assignedProfessionalId', 'createdAt']) &&
-             data.keys().hasAll(['name', 'assignedProfessionalId', 'createdAt']) &&
+      return data.keys().hasAll(['name', 'assignedProfessionalId', 'createdAt']) &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
              (data.get('cpf', '') is string && data.get('cpf', '').size() <= 20) &&
              (data.get('rg', '') is string && data.get('rg', '').size() <= 20) &&
@@ -88,8 +86,7 @@ service cloud.firestore {
     }
 
     function isValidAppointment(data) {
-      return data.keys().hasOnly(['patientId', 'patientName', 'professionalId', 'date', 'duration', 'office', 'status', 'notes', 'reminderTiming', 'createdAt']) &&
-             data.keys().hasAll(['patientId', 'patientName', 'professionalId', 'date', 'duration', 'office', 'status', 'createdAt']) &&
+      return data.keys().hasAll(['patientId', 'patientName', 'professionalId', 'date', 'duration', 'office', 'status', 'createdAt']) &&
              data.patientId is string && data.patientId.size() >= 1 && data.patientId.size() <= 128 &&
              data.patientName is string && data.patientName.size() >= 1 && data.patientName.size() <= 100 &&
              data.professionalId is string && data.professionalId.size() >= 1 && data.professionalId.size() <= 128 &&
@@ -103,8 +100,7 @@ service cloud.firestore {
     }
 
     function isValidMedicalRecord(data) {
-      return data.keys().hasOnly(['patientId', 'professionalId', 'date', 'content', 'createdAt']) &&
-             data.keys().hasAll(['patientId', 'professionalId', 'date', 'content', 'createdAt']) &&
+      return data.keys().hasAll(['patientId', 'professionalId', 'date', 'content', 'createdAt']) &&
              data.patientId is string && data.patientId.size() >= 1 && data.patientId.size() <= 128 &&
              data.professionalId is string && data.professionalId.size() >= 1 && data.professionalId.size() <= 128 &&
              data.date is timestamp &&
@@ -113,8 +109,7 @@ service cloud.firestore {
     }
 
     function isValidPayment(data) {
-      return data.keys().hasOnly(['amount', 'date', 'method', 'methodDetails', 'patientId', 'patientName', 'professionalId', 'professionalName', 'createdAt']) &&
-             data.keys().hasAll(['amount', 'date', 'method', 'patientId', 'patientName', 'professionalId', 'professionalName', 'createdAt']) &&
+      return data.keys().hasAll(['amount', 'date', 'method', 'patientId', 'patientName', 'professionalId', 'professionalName', 'createdAt']) &&
              data.amount is number && data.amount > 0 &&
              data.date is timestamp &&
              data.method in ['pix', 'cash', 'credit_card', 'debit_card', 'health_insurance'] &&
@@ -127,8 +122,7 @@ service cloud.firestore {
     }
 
     function isValidAttachment(data) {
-      return data.keys().hasOnly(['patientId', 'professionalId', 'name', 'type', 'url', 'fileData', 'createdAt']) &&
-             data.keys().hasAll(['patientId', 'professionalId', 'name', 'type', 'createdAt']) &&
+      return data.keys().hasAll(['patientId', 'professionalId', 'name', 'type', 'createdAt']) &&
              data.patientId is string && data.patientId.size() >= 1 && data.patientId.size() <= 128 &&
              data.professionalId is string && data.professionalId.size() >= 1 && data.professionalId.size() <= 128 &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&

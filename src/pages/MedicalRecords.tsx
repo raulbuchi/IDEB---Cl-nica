@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { Plus, Edit2, Trash2, X, FileText, Paperclip, ExternalLink, Download } from 'lucide-react';
@@ -151,7 +151,7 @@ export default function MedicalRecords() {
           professionalId: profile.uid,
           date: recordDate,
           content: formData.content,
-          createdAt: new Date()
+          createdAt: serverTimestamp()
         });
       }
       closeModal();
@@ -187,7 +187,7 @@ export default function MedicalRecords() {
         type: attachmentData.type,
         url: attachmentData.url || '',
         fileData: attachmentData.fileData || '',
-        createdAt: new Date()
+        createdAt: serverTimestamp()
       });
       setIsAttachmentModalOpen(false);
       setAttachmentData({ name: '', type: 'exam', url: '', fileData: '' });

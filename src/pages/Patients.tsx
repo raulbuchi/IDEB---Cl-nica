@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { Plus, Edit2, Trash2, X, Search } from 'lucide-react';
@@ -167,7 +167,7 @@ export default function Patients() {
       } else {
         await addDoc(collection(db, 'patients'), {
           ...formData,
-          createdAt: new Date()
+          createdAt: serverTimestamp()
         });
       }
       closeModal();

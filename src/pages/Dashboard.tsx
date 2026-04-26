@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp, writeBatch } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { Plus, Edit2, Trash2, X, Calendar as CalendarIcon, Clock, MapPin, RefreshCw, Bell, MessageCircle, Mail, Smartphone, List, Repeat } from 'lucide-react';
@@ -193,7 +193,7 @@ export default function Dashboard() {
             status: formData.status,
             notes: formData.notes,
             reminderTiming: formData.reminderTiming,
-            createdAt: new Date()
+            createdAt: serverTimestamp()
           });
         }
         await batch.commit();

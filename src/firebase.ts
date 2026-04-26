@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -115,7 +115,7 @@ export async function loginDemo() {
         name: 'Administrador Demo',
         email: user.email,
         role: 'admin',
-        createdAt: new Date()
+        createdAt: serverTimestamp()
       });
     }
   } catch (error: any) {
@@ -130,7 +130,7 @@ export async function loginDemo() {
           name: 'Administrador Demo',
           email: user.email,
           role: 'admin',
-          createdAt: new Date()
+          createdAt: serverTimestamp()
         });
       } catch (createError) {
         console.error("Error creating demo user:", createError);

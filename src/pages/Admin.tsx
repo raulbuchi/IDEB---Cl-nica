@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { db, secondaryAuth, handleFirestoreError, OperationType } from '../firebase';
 import { Shield, ShieldAlert, Trash2, Plus, X } from 'lucide-react';
 
@@ -73,8 +73,22 @@ export default function Admin() {
 
     try {
       // Create user in Firebase Auth using secondary app
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
-      const newUid = userCredential.user.uid;
+      let newUid;
+      try {
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+        newUid = userCredential.user.uid;
+      } catch (authError: any) {
+        if (authError.code === 'auth/email-already-in-use') {
+          try {
+            const loginCredential = await signInWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+            newUid = loginCredential.user.uid;
+          } catch (loginError) {
+            throw authError;
+          }
+        } else {
+          throw authError;
+        }
+      }
 
       // Sign out secondary auth just in case
       await secondaryAuth.signOut();
@@ -82,20 +96,28 @@ export default function Admin() {
       // Create user document in Firestore
       await setDoc(doc(db, 'users', newUid), {
         uid: newUid,
-        name: formData.name,
-        email: formData.email,
+        name: formData.name.trim(),
+        email: formData.email.trim(),
         role: 'professional',
         professionalId: formData.professionalId,
         specialty: formData.specialty,
         phone: formData.phone,
-        createdAt: new Date()
+        createdAt: serverTimestamp()
       });
 
       setIsModalOpen(false);
       setFormData({ name: '', email: '', password: '', professionalId: '', specialty: '', phone: '' });
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Erro ao criar usuário. Verifique se o e-mail já está em uso.');
+      if (err.code === 'auth/invalid-email') {
+        setError('O formato do e-mail é inválido.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('A senha deve ter pelo menos 6 caracteres.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError('Este e-mail já está em uso por outro usuário.');
+      } else {
+        setError(err.message || 'Erro ao criar usuário. Verifique se o e-mail já está em uso.');
+      }
     } finally {
       setCreating(false);
     }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, where, setDoc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, where, setDoc, serverTimestamp } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType, secondaryAuth } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { Edit2, Trash2, X, User as UserIcon, Phone, Mail, MapPin, Briefcase, Hash, Instagram, Plus } from 'lucide-react';
@@ -78,13 +78,30 @@ export default function Professionals() {
         });
       } else {
         // Create new professional
-        const result = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
-        const user = result.user;
+        let user;
+        try {
+          const result = await createUserWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+          user = result.user;
+        } catch (authError: any) {
+          if (authError.code === 'auth/email-already-in-use') {
+            // Conta órfã: o usuário foi criado no Auth na tentativa anterior, mas deu erro no Firestore.
+            // Vamos tentar fazer login com a senha recém digitada para recuperar a conta e prosseguir com a gravação do Firestore.
+            try {
+              const loginResult = await signInWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+              user = loginResult.user;
+            } catch (loginError: any) {
+              // Se a senha não bater ou der outro erro, joga o erro original
+              throw authError;
+            }
+          } else {
+            throw authError; // Outros erros (ex: weak-password) continuam indo pro catch principal
+          }
+        }
         
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
-          name: formData.name,
-          email: formData.email,
+          name: formData.name.trim(),
+          email: formData.email.trim(),
           role: 'professional',
           professionalId: formData.professionalId,
           specialty: formData.specialty,
@@ -93,17 +110,23 @@ export default function Professionals() {
           cpfCnpj: formData.cpfCnpj,
           address: formData.address,
           socialMedia: formData.socialMedia,
-          createdAt: new Date()
+          createdAt: serverTimestamp()
         });
+
+        // Sign out just in case
+        await secondaryAuth.signOut();
       }
       closeModal();
     } catch (error: any) {
       if (error.code === 'auth/email-already-in-use') {
         alert('Este e-mail já está em uso por outro usuário.');
+      } else if (error.code === 'auth/invalid-email') {
+        alert('O formato do e-mail é inválido.');
       } else if (error.code === 'auth/weak-password') {
         alert('A senha deve ter pelo menos 6 caracteres.');
       } else {
-        handleFirestoreError(error, editingProfessional ? OperationType.UPDATE : OperationType.CREATE, 'users');
+        console.error("Cadastro Error:", error);
+        alert(`Erro ao salvar: ${error.message || 'Verifique as permissões e conexão.'}`);
       }
     } finally {
       setIsSubmitting(false);
@@ -124,19 +147,36 @@ export default function Professionals() {
     }
   };
 
-  const openModal = (prof: Professional) => {
-    setEditingProfessional(prof);
-    setFormData({
-      name: prof.name || '',
-      email: prof.email || '',
-      professionalId: prof.professionalId || '',
-      specialty: prof.specialty || '',
-      phone: prof.phone || '',
-      rg: prof.rg || '',
-      cpfCnpj: prof.cpfCnpj || '',
-      address: prof.address || '',
-      socialMedia: prof.socialMedia || ''
-    });
+  const openModal = (prof?: Professional) => {
+    if (prof) {
+      setEditingProfessional(prof);
+      setFormData({
+        name: prof.name || '',
+        email: prof.email || '',
+        password: '', // Password is not editable
+        professionalId: prof.professionalId || '',
+        specialty: prof.specialty || '',
+        phone: prof.phone || '',
+        rg: prof.rg || '',
+        cpfCnpj: prof.cpfCnpj || '',
+        address: prof.address || '',
+        socialMedia: prof.socialMedia || ''
+      });
+    } else {
+      setEditingProfessional(null);
+      setFormData({
+        name: '',
+        email: '',
+        password: '',
+        professionalId: '',
+        specialty: '',
+        phone: '',
+        rg: '',
+        cpfCnpj: '',
+        address: '',
+        socialMedia: ''
+      });
+    }
     setIsModalOpen(true);
   };
 

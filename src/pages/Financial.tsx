@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
 import { Plus, Edit2, Trash2, X, DollarSign, Calendar as CalendarIcon, User as UserIcon, Filter, Download } from 'lucide-react';
@@ -166,7 +166,7 @@ export default function Financial() {
           patientName: patient.name,
           professionalId: professional?.uid || profile.uid,
           professionalName: professional?.name || profile.name,
-          createdAt: new Date()
+          createdAt: serverTimestamp()
         });
       }
       closeModal();
