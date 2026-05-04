@@ -24,6 +24,14 @@ const localizer = dateFnsLocalizer({
 
 const DnDCalendar = withDragAndDrop(Calendar as any);
 
+interface StatusChange {
+  from: string;
+  to: string;
+  changedById: string;
+  changedByName: string;
+  changedAt: any;
+}
+
 interface Appointment {
   id: string;
   patientId: string;
@@ -34,6 +42,7 @@ interface Appointment {
   office: string;
   status: 'scheduled' | 'completed' | 'cancelled';
   notes?: string;
+  statusHistory?: StatusChange[];
   reminderTiming?: string;
   createdAt: any;
 }
@@ -69,13 +78,24 @@ export default function Dashboard() {
   const [calendarView, setCalendarView] = useState<View>('week');
   const [calendarDate, setCalendarDate] = useState<Date>(new Date());
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    patientId: string;
+    professionalId: string;
+    date: string;
+    duration: number;
+    office: string;
+    status: 'scheduled' | 'completed' | 'cancelled';
+    notes: string;
+    reminderTiming: string;
+    recurrence: string;
+    recurrenceCount: number;
+  }>({
     patientId: '',
     professionalId: '',
     date: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
     duration: 60,
     office: 'Consultório 1',
-    status: 'scheduled' as const,
+    status: 'scheduled',
     notes: '',
     reminderTiming: '24h',
     recurrence: 'none',
@@ -159,6 +179,19 @@ export default function Dashboard() {
     try {
       if (editingAppointment) {
         const appointmentDate = Timestamp.fromDate(new Date(formData.date));
+        const statusChanged = editingAppointment.status !== formData.status;
+        const newHistory = [...(editingAppointment.statusHistory || [])];
+
+        if (statusChanged) {
+          newHistory.push({
+            from: editingAppointment.status,
+            to: formData.status,
+            changedById: profile.uid,
+            changedByName: profile.name,
+            changedAt: new Date()
+          });
+        }
+
         await updateDoc(doc(db, 'appointments', editingAppointment.id), {
           patientId: formData.patientId,
           patientName: selectedPatient.name,
@@ -168,6 +201,7 @@ export default function Dashboard() {
           office: formData.office,
           status: formData.status,
           notes: formData.notes,
+          statusHistory: newHistory,
           reminderTiming: formData.reminderTiming
         });
       } else {
@@ -192,6 +226,13 @@ export default function Dashboard() {
             office: formData.office,
             status: formData.status,
             notes: formData.notes,
+            statusHistory: [{
+              from: 'none',
+              to: formData.status,
+              changedById: profile.uid,
+              changedByName: profile.name,
+              changedAt: new Date()
+            }],
             reminderTiming: formData.reminderTiming,
             createdAt: serverTimestamp()
           });
@@ -204,8 +245,33 @@ export default function Dashboard() {
     }
   };
 
+  const handleUpdateStatus = async (appointment: Appointment, newStatus: 'scheduled' | 'completed' | 'cancelled') => {
+    if (!profile) return;
+    try {
+      const newHistory = [...(appointment.statusHistory || [])];
+      newHistory.push({
+        from: appointment.status,
+        to: newStatus,
+        changedById: profile.uid,
+        changedByName: profile.name,
+        changedAt: new Date()
+      });
+
+      await updateDoc(doc(db, 'appointments', appointment.id), {
+        status: newStatus,
+        statusHistory: newHistory
+      });
+      
+      if (viewingAppointment?.id === appointment.id) {
+        setViewingAppointment({ ...appointment, status: newStatus, statusHistory: newHistory });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `appointments/${appointment.id}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (window.confirm('Tem certeza que deseja cancelar/remover esta consulta?')) {
+    if (window.confirm('Tem certeza que deseja REMOVER permanentemente esta consulta do sistema?')) {
       try {
         await deleteDoc(doc(db, 'appointments', id));
       } catch (error) {
@@ -364,12 +430,15 @@ export default function Dashboard() {
     setEditingAppointment(null);
     setFormData({
       patientId: '',
+      professionalId: isAdmin ? '' : profile?.uid || '',
       date: format(targetDate, "yyyy-MM-dd'T'HH:mm"),
       duration: 60,
       office: 'Consultório 1',
       status: 'scheduled',
       notes: '',
-      reminderTiming: '24h'
+      reminderTiming: '24h',
+      recurrence: 'none',
+      recurrenceCount: 1
     });
     setIsModalOpen(true);
   };
@@ -545,7 +614,7 @@ export default function Dashboard() {
             onEventResize={onEventResize}
             resizable
             selectable
-            eventPropGetter={(event) => {
+            eventPropGetter={(event: any) => {
               let backgroundColor = '#3b82f6'; // blue for scheduled
               if (event.status === 'completed') backgroundColor = '#10b981'; // green
               if (event.status === 'cancelled') backgroundColor = '#ef4444'; // red
@@ -617,35 +686,48 @@ export default function Dashboard() {
                             </div>
                           )}
                         </div>
-                        <div className="mt-4 flex-shrink-0 sm:mt-0 flex gap-2 justify-end">
-                          <button
-                            onClick={() => setReminderModalApt(apt)}
-                            title="Enviar Lembrete"
-                            className="p-2 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-full transition-colors divide-x divide-gray-200"
-                          >
-                            <Bell className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => handleScheduleReturn(apt)}
-                            title="Agendar Retorno"
-                            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors"
-                          >
-                            <RefreshCw className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => openModal(apt)}
-                            title="Editar Consulta"
-                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                          >
-                            <Edit2 className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(apt.id)}
-                            title="Cancelar Consulta"
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
+                        <div className="mt-4 flex-shrink-0 sm:mt-0 flex flex-wrap gap-2 justify-end items-center">
+                          {apt.status === 'completed' && (
+                            <button
+                              onClick={() => handleScheduleReturn(apt)}
+                              className="inline-flex items-center px-3 py-1.5 border border-emerald-300 shadow-sm text-xs font-medium rounded-md text-emerald-700 bg-emerald-50 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors"
+                            >
+                              <RefreshCw className="w-4 h-4 mr-1.5" />
+                              Agendar Retorno
+                            </button>
+                          )}
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => setReminderModalApt(apt)}
+                              title="Enviar Lembrete"
+                              className="p-2 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-full transition-colors"
+                            >
+                              <Bell className="w-5 h-5" />
+                            </button>
+                            {apt.status === 'scheduled' && (
+                              <button
+                                onClick={() => handleUpdateStatus(apt, 'completed')}
+                                title="Marcar como Concluído"
+                                className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors"
+                              >
+                                <RefreshCw className="w-5 h-5" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => openModal(apt)}
+                              title="Editar Consulta"
+                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                            >
+                              <Edit2 className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={() => handleUpdateStatus(apt, 'cancelled')}
+                              title="Cancelar Consulta"
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </li>
@@ -1000,42 +1082,89 @@ export default function Dashboard() {
                     <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{viewingAppointment.notes}</p>
                   </div>
                 )}
+
+                {viewingAppointment.statusHistory && viewingAppointment.statusHistory.length > 0 && (
+                  <div className="col-span-1 md:col-span-2 mt-4">
+                    <span className="block text-sm font-semibold text-gray-700 mb-2">Histórico de Status</span>
+                    <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+                      <ul className="divide-y divide-gray-200">
+                        {viewingAppointment.statusHistory.map((history, idx) => (
+                          <li key={idx} className="p-3 text-xs">
+                            <div className="flex justify-between items-start">
+                              <span className="font-medium text-gray-900">
+                                {history.from === 'none' ? (
+                                  <>Criado como <span className="text-blue-600 uppercase">{getStatusText(history.to)}</span></>
+                                ) : (
+                                  <>De <span className="text-gray-500 uppercase">{getStatusText(history.from)}</span> para <span className="text-blue-600 uppercase">{getStatusText(history.to)}</span></>
+                                )}
+                              </span>
+                              <span className="text-gray-500">
+                                {history.changedAt?.toDate ? format(history.changedAt.toDate(), "dd/MM/yy HH:mm") : format(new Date(history.changedAt), "dd/MM/yy HH:mm")}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-gray-500">
+                              Por: {history.changedByName}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 pt-5 border-t border-gray-100">
+              <div className="flex flex-wrap gap-2 pt-5 border-t border-gray-100">
+                {viewingAppointment.status !== 'completed' && (
+                  <button
+                    onClick={() => handleUpdateStatus(viewingAppointment, 'completed')}
+                    className="flex-1 min-w-[120px] inline-flex justify-center items-center px-4 py-2 bg-green-600 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  >
+                    Concluir
+                  </button>
+                )}
+                {viewingAppointment.status !== 'cancelled' && (
+                  <button
+                    onClick={() => handleUpdateStatus(viewingAppointment, 'cancelled')}
+                    className="flex-1 min-w-[120px] inline-flex justify-center items-center px-4 py-2 bg-red-600 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    Cancelar Agend.
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const apt = viewingAppointment;
+                    setViewingAppointment(null);
+                    handleScheduleReturn(apt);
+                  }}
+                  className="flex-1 min-w-[120px] inline-flex justify-center items-center px-4 py-2 bg-emerald-100 border border-emerald-300 rounded-md shadow-sm text-sm font-medium text-emerald-800 hover:bg-emerald-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Retorno
+                </button>
                 <button
                   onClick={() => {
                     const apt = viewingAppointment;
                     setViewingAppointment(null);
                     openModal(apt);
                   }}
-                  className="flex-1 inline-flex justify-center items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  className="flex-1 min-w-[120px] inline-flex justify-center items-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   <Edit2 className="w-4 h-4 mr-2 text-gray-400" />
                   Editar
                 </button>
-                <button
-                  onClick={() => {
-                    const apt = viewingAppointment;
-                    setViewingAppointment(null);
-                    setReminderModalApt(apt);
-                  }}
-                  className="flex-1 inline-flex justify-center items-center px-4 py-2 bg-white border border-green-300 rounded-md shadow-sm text-sm font-medium text-green-700 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                >
-                  <Bell className="w-4 h-4 mr-2 text-green-500" />
-                  Lembrete
-                </button>
-                <button
-                  onClick={() => {
-                    const apt = viewingAppointment;
-                    setViewingAppointment(null);
-                    handleDelete(apt.id);
-                  }}
-                  className="flex-1 inline-flex justify-center items-center px-4 py-2 bg-white border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                >
-                  <Trash2 className="w-4 h-4 mr-2 text-red-400" />
-                  Cancelar
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      const apt = viewingAppointment;
+                      setViewingAppointment(null);
+                      handleDelete(apt.id);
+                    }}
+                    className="flex-1 min-w-[120px] inline-flex justify-center items-center px-4 py-2 bg-white border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2 text-red-400" />
+                    Excluir
+                  </button>
+                )}
               </div>
             </div>
           </div>

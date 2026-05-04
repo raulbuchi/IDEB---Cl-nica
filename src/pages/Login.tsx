@@ -23,7 +23,7 @@ export default function Login() {
     try {
       setLoading(true);
       setError('');
-      await loginWithEmail(email, password);
+      await loginWithEmail(email.trim().toLowerCase(), password);
     } catch (err: any) {
       setError('E-mail ou senha incorretos.');
       setLoading(false);

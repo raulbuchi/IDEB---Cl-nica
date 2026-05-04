@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
-import { Plus, Edit2, Trash2, X, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Search, FileText, Paperclip } from 'lucide-react';
 
 interface Patient {
   id: string;
@@ -33,6 +34,8 @@ export default function Patients() {
   const [loading, setLoading] = useState(true);
   const [selectedProfessionalFilter, setSelectedProfessionalFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
@@ -247,17 +250,53 @@ export default function Patients() {
       matchesSearch = nameMatch || cpfMatch || phoneMatch;
     }
 
-    return matchesFilter && matchesSearch;
+    let matchesDate = true;
+    if (startDate || endDate) {
+      if (patient.createdAt && patient.createdAt.seconds) {
+        const patientDate = new Date(patient.createdAt.seconds * 1000);
+        const yyyy = patientDate.getFullYear();
+        const mm = String(patientDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(patientDate.getDate()).padStart(2, '0');
+        const formattedPatientDate = `${yyyy}-${mm}-${dd}`;
+
+        if (startDate && formattedPatientDate < startDate) matchesDate = false;
+        if (endDate && formattedPatientDate > endDate) matchesDate = false;
+      } else {
+        matchesDate = false;
+      }
+    }
+
+    return matchesFilter && matchesSearch && matchesDate;
   });
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Pacientes</h2>
           <p className="mt-1 text-sm text-gray-500">Gerencie o cadastro de pacientes da clínica.</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+        <div className="flex flex-row flex-wrap items-end gap-3 w-full lg:w-auto">
+          <div className="flex gap-2">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Data Inicial</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border h-[38px]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Data Final</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border h-[38px]"
+              />
+            </div>
+          </div>
           <div className="relative w-full sm:w-64">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-gray-400" />
@@ -267,14 +306,14 @@ export default function Patients() {
               placeholder="Buscar por nome, CPF ou telefone..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm h-[38px]"
             />
           </div>
           {isAdmin && (
             <select
               value={selectedProfessionalFilter}
               onChange={(e) => setSelectedProfessionalFilter(e.target.value)}
-              className="block w-full sm:w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
+              className="block w-full sm:w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border h-[38px]"
             >
               <option value="all">Todos os Profissionais</option>
               {professionals.map(p => (
@@ -284,7 +323,7 @@ export default function Patients() {
           )}
           <button
             onClick={() => openModal()}
-            className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+            className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 h-[38px] whitespace-nowrap"
           >
             <Plus className="w-5 h-5 mr-2" />
             Novo Paciente
@@ -308,9 +347,28 @@ export default function Patients() {
                         {patient.cpf && <span>CPF: {patient.cpf}</span>}
                         {patient.phone && <span>Tel: {patient.phone}</span>}
                         {isAdmin && prof && <span className="text-purple-600">Profissional: {prof.name}</span>}
+                        {patient.createdAt && patient.createdAt.seconds && (
+                          <span className="text-gray-400">
+                            Cadastrado em: {new Date(patient.createdAt.seconds * 1000).toLocaleDateString()}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="mt-4 flex-shrink-0 sm:mt-0 sm:ml-5 flex gap-2">
+                      <Link
+                        to={`/records?patientId=${patient.id}&tab=records`}
+                        className="p-2 text-gray-400 hover:text-blue-600"
+                        title="Ver Prontuário"
+                      >
+                        <FileText className="w-5 h-5" />
+                      </Link>
+                      <Link
+                        to={`/records?patientId=${patient.id}&tab=attachments`}
+                        className="p-2 text-gray-400 hover:text-green-600"
+                        title="Ver Anexos"
+                      >
+                        <Paperclip className="w-5 h-5" />
+                      </Link>
                       <button
                         onClick={() => openModal(patient)}
                         className="p-2 text-gray-400 hover:text-blue-600"

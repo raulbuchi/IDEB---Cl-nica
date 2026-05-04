@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../AuthContext';
@@ -33,12 +34,16 @@ interface Patient {
 
 export default function MedicalRecords() {
   const { profile, isAdmin } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const patientParam = searchParams.get('patientId');
+  const tabParam = searchParams.get('tab') as 'records' | 'attachments';
+
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [selectedPatientId, setSelectedPatientId] = useState<string>('');
+  const [selectedPatientId, setSelectedPatientId] = useState<string>(patientParam || '');
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'records' | 'attachments'>('records');
+  const [activeTab, setActiveTab] = useState<'records' | 'attachments'>(tabParam || 'records');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<MedicalRecord | null>(null);
@@ -71,7 +76,9 @@ export default function MedicalRecords() {
         patientsData.push({ id: doc.id, name: doc.data().name } as Patient);
       });
       setPatients(patientsData);
-      if (patientsData.length > 0 && !selectedPatientId) {
+      
+      // Only set initial patient if none is selected via param
+      if (patientsData.length > 0 && !selectedPatientId && !patientParam) {
         setSelectedPatientId(patientsData[0].id);
       }
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'patients'));
@@ -257,9 +264,13 @@ export default function MedicalRecords() {
         </div>
         
         <div className="flex items-center gap-4 w-full sm:w-auto">
-          <select
+            <select
             value={selectedPatientId}
-            onChange={(e) => setSelectedPatientId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value;
+              setSelectedPatientId(id);
+              setSearchParams({ patientId: id, tab: activeTab });
+            }}
             className="block w-full sm:w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
           >
             <option value="" disabled>Selecione um paciente</option>
@@ -290,7 +301,10 @@ export default function MedicalRecords() {
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8">
               <button
-                onClick={() => setActiveTab('records')}
+                onClick={() => {
+                  setActiveTab('records');
+                  setSearchParams({ patientId: selectedPatientId, tab: 'records' });
+                }}
                 className={`${
                   activeTab === 'records'
                     ? 'border-blue-500 text-blue-600'
@@ -301,7 +315,10 @@ export default function MedicalRecords() {
                 Registros Clínicos
               </button>
               <button
-                onClick={() => setActiveTab('attachments')}
+                onClick={() => {
+                  setActiveTab('attachments');
+                  setSearchParams({ patientId: selectedPatientId, tab: 'attachments' });
+                }}
                 className={`${
                   activeTab === 'attachments'
                     ? 'border-blue-500 text-blue-600'

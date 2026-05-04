@@ -74,16 +74,17 @@ export default function Admin() {
     try {
       // Create user in Firebase Auth using secondary app
       let newUid;
+      const cleanEmail = formData.email.trim().toLowerCase();
       try {
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, formData.password);
         newUid = userCredential.user.uid;
       } catch (authError: any) {
         if (authError.code === 'auth/email-already-in-use') {
           try {
-            const loginCredential = await signInWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+            const loginCredential = await signInWithEmailAndPassword(secondaryAuth, cleanEmail, formData.password);
             newUid = loginCredential.user.uid;
           } catch (loginError) {
-            throw authError;
+            throw authError; // We care about the original creation error if login fails
           }
         } else {
           throw authError;
@@ -97,7 +98,7 @@ export default function Admin() {
       await setDoc(doc(db, 'users', newUid), {
         uid: newUid,
         name: formData.name.trim(),
-        email: formData.email.trim(),
+        email: cleanEmail,
         role: 'professional',
         professionalId: formData.professionalId,
         specialty: formData.specialty,

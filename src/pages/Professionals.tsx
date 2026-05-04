@@ -79,15 +79,16 @@ export default function Professionals() {
       } else {
         // Create new professional
         let user;
+        const cleanEmail = formData.email.trim().toLowerCase();
         try {
-          const result = await createUserWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+          const result = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, formData.password);
           user = result.user;
         } catch (authError: any) {
           if (authError.code === 'auth/email-already-in-use') {
             // Conta órfã: o usuário foi criado no Auth na tentativa anterior, mas deu erro no Firestore.
             // Vamos tentar fazer login com a senha recém digitada para recuperar a conta e prosseguir com a gravação do Firestore.
             try {
-              const loginResult = await signInWithEmailAndPassword(secondaryAuth, formData.email.trim(), formData.password);
+              const loginResult = await signInWithEmailAndPassword(secondaryAuth, cleanEmail, formData.password);
               user = loginResult.user;
             } catch (loginError: any) {
               // Se a senha não bater ou der outro erro, joga o erro original
@@ -101,7 +102,7 @@ export default function Professionals() {
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
           name: formData.name.trim(),
-          email: formData.email.trim(),
+          email: cleanEmail,
           role: 'professional',
           professionalId: formData.professionalId,
           specialty: formData.specialty,
